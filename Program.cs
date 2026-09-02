@@ -1,10 +1,121 @@
 using System.Diagnostics;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.Win32;
 using System.Drawing;
 using System.Windows.Forms;
 
 internal sealed record Game(string Name, string Source, string? Executable, string? LaunchUri, string? InstallPath);
+
+internal static class LauncherUpdater
+{
+    const string Repo = "Mataiasu/MataiasuLauncher";
+    const string AssetName = "MataiasuLauncher.exe";
+    const string CommitApi = "https://api.github.com/repos/Mataiasu/MataiasuLauncher/commits/main";
+    const string ReleaseApi = "https://api.github.com/repos/Mataiasu/MataiasuLauncher/releases/tags/latest";
+
+    static readonly HttpClient Http = CreateClient();
+
+    static HttpClient CreateClient()
+    {
+        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("MataiasuLauncher", "1.0"));
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        return client;
+    }
+
+    public static async Task<bool> CheckAndApplyAsync()
+    {
+        if (BuildInfo.Commit.Equals("dev", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        try
+        {
+            var latestCommit = await GetLatestCommitAsync();
+            if (string.IsNullOrWhiteSpace(latestCommit) ||
+                latestCommit.Equals(BuildInfo.Commit, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var release = await GetLatestReleaseAsync();
+            if (release is null || !release.Value.TryGetProperty("assets", out var assets))
+                return false;
+
+            string? assetUrl = null;
+            string? releaseCommit = null;
+
+            foreach (var asset in assets.EnumerateArray())
+            {
+                var name = asset.TryGetProperty("name", out var n) ? n.GetString() : null;
+                var url = asset.TryGetProperty("browser_download_url", out var u) ? u.GetString() : null;
+                if (string.Equals(name, AssetName, StringComparison.OrdinalIgnoreCase))
+                    assetUrl = url;
+                else if (string.Equals(name, "MataiasuLauncher.commit.txt", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(url))
+                    releaseCommit = (await Http.GetStringAsync(url)).Trim();
+            }
+
+            if (string.IsNullOrWhiteSpace(assetUrl) ||
+                !latestCommit.Equals(releaseCommit, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var currentExe = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(currentExe) || !File.Exists(currentExe))
+                return false;
+
+            var tempRoot = Path.Combine(Path.GetTempPath(), "MataiasuLauncher", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempRoot);
+            var downloadedExe = Path.Combine(tempRoot, AssetName);
+            using (var response = await Http.GetAsync(assetUrl, HttpCompletionOption.ResponseHeadersRead))
+            {
+                response.EnsureSuccessStatusCode();
+                await using var input = await response.Content.ReadAsStreamAsync();
+                await using var output = File.Create(downloadedExe);
+                await input.CopyToAsync(output);
+            }
+
+            var script = Path.Combine(tempRoot, "update.cmd");
+            var scriptContent = $"@echo off\r\n" +
+                ":retry\r\n" +
+                $"copy /Y \"{downloadedExe}\" \"{currentExe}\" >nul 2>&1\r\n" +
+                "if errorlevel 1 (timeout /t 1 /nobreak >nul & goto retry)\r\n" +
+                $"start \"\" \"{currentExe}\"\r\n" +
+                $"del \"{downloadedExe}\" >nul 2>&1\r\n" +
+                $"del \"%~f0\" >nul 2>&1\r\n";
+            await File.WriteAllTextAsync(script, scriptContent);
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c \"\"{script}\"\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            });
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    static async Task<string?> GetLatestCommitAsync()
+    {
+        using var response = await Http.GetAsync(CommitApi);
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return doc.RootElement.TryGetProperty("sha", out var sha) ? sha.GetString() : null;
+    }
+
+    static async Task<JsonElement?> GetLatestReleaseAsync()
+    {
+        using var response = await Http.GetAsync(ReleaseApi);
+        if (!response.IsSuccessStatusCode)
+            return null;
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return doc.RootElement.Clone();
+    }
+}
 
 internal static class GameScanner
 {
@@ -65,7 +176,7 @@ internal static class GameScanner
     {
         if (!string.IsNullOrWhiteSpace(displayIcon))
         {
-            var p = displayIcon.Split(',')[0].Trim('"', ' ');
+            var p = displayIcon.Split(',')[0].Trim('\"', ' ');
             if (File.Exists(p) && p.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return p;
         }
         if (string.IsNullOrWhiteSpace(installPath) || !Directory.Exists(installPath)) return null;
@@ -264,7 +375,7 @@ internal sealed class MainForm : Form
             if (!string.IsNullOrWhiteSpace(game.InstallPath) && Directory.Exists(game.InstallPath))
             {
                 Process.Start(new ProcessStartInfo { FileName = game.InstallPath, UseShellExecute = true });
-                MessageBox.Show("Le launcher a trouvé le dossier du jeu, mais pas encore son exécutable. Cette détection sera améliorée dans une prochaine version.", "Mataiasu Launcher", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Le launcher a trouvé le dossier du jeu, mais pas encore son exécutable.", "Mataiasu Launcher", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             MessageBox.Show("Aucune méthode de lancement valide n'a été trouvée pour ce jeu.", "Mataiasu Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -279,9 +390,14 @@ internal sealed class MainForm : Form
 internal static class Program
 {
     [STAThread]
-    static void Main()
+    static async Task Main()
     {
         ApplicationConfiguration.Initialize();
+
+        var updated = await LauncherUpdater.CheckAndApplyAsync();
+        if (updated)
+            return;
+
         Application.Run(new MainForm());
     }
 }
