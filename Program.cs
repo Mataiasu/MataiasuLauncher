@@ -176,7 +176,7 @@ internal static class GameScanner
                 if (iconExe != null) options.Add(new LaunchOption("Application", "exe", iconExe, Path.GetDirectoryName(iconExe)));
                 if (install != null)
                 {
-                    foreach (var exe in FindBestExecutables(install, 4)) AddExeOption(options, exe, install);
+                    foreach (var exe in FindBestExecutables(install, 8)) AddExeOption(options, exe, install);
                     AddSpecialLaunchers(options, install);
                 }
                 Add(games, new Game(name.Trim(), "Installé", install, options, iconExe));
@@ -213,7 +213,7 @@ internal static class GameScanner
                     var options = new List<LaunchOption> { new("Steam", "uri", $"steam://rungameid/{appId}", path) };
                     if (path != null)
                     {
-                        foreach (var exe in FindBestExecutables(path, 5)) AddExeOption(options, exe, path);
+                        foreach (var exe in FindBestExecutables(path, 10)) AddExeOption(options, exe, path);
                         AddSpecialLaunchers(options, path);
                     }
                     Add(games, new Game(name, "Steam", path, options, FindFirstIcon(path)));
@@ -253,7 +253,7 @@ internal static class GameScanner
                 }
                 if (install != null)
                 {
-                    foreach (var exe in FindBestExecutables(install, 5)) AddExeOption(options, exe, install);
+                    foreach (var exe in FindBestExecutables(install, 10)) AddExeOption(options, exe, install);
                     AddSpecialLaunchers(options, install);
                 }
                 Add(games, new Game(name.Trim(), "Epic Games", install, options, FindFirstIcon(install)));
@@ -291,15 +291,14 @@ internal static class GameScanner
                 {
                     if (IsIgnoredPath(dir)) continue;
                     var exes = SafeEnumerateFiles(dir, "*.exe", SearchOption.TopDirectoryOnly)
-                        .Where(IsCandidateExe).OrderByDescending(ExecutableScore).Take(8).ToList();
+                        .Where(IsCandidateExe).OrderByDescending(ExecutableScore).Take(12).ToList();
                     if (exes.Count == 0) continue;
-                    var best = exes.Take(5).ToList();
                     var name = CleanGameName(Path.GetFileName(dir));
                     if (string.IsNullOrWhiteSpace(name)) continue;
                     var options = new List<LaunchOption>();
-                    foreach (var exe in best) AddExeOption(options, exe, dir);
+                    foreach (var exe in exes) AddExeOption(options, exe, dir);
                     AddSpecialLaunchers(options, dir);
-                    if (options.Count > 0) Add(games, new Game(name, "EXE détecté", dir, options, best.FirstOrDefault()));
+                    if (options.Count > 0) Add(games, new Game(name, "EXE détecté", dir, options, exes.FirstOrDefault()));
                 }
             }
             catch { }
@@ -316,7 +315,7 @@ internal static class GameScanner
         var file = Path.GetFileName(path);
         if (IgnoredExeNames.Any(x => string.Equals(x, file, StringComparison.OrdinalIgnoreCase))) return false;
         if (IgnoredPathParts.Any(x => path.Contains(x, StringComparison.OrdinalIgnoreCase))) return false;
-        try { return new FileInfo(path).Length >= 350_000; } catch { return false; }
+        return true;
     }
 
     static int ExecutableScore(string path)
@@ -545,10 +544,7 @@ internal sealed class MainForm : Form
     void SelectGame(Game? game)
     {
         selected = game;
-        if (game == null)
-        {
-            selectedTitle.Text = "Sélectionne un jeu"; selectedInfo.Text = ""; mode.Items.Clear(); return;
-        }
+        if (game == null) { selectedTitle.Text = "Sélectionne un jeu"; selectedInfo.Text = ""; mode.Items.Clear(); return; }
         selectedTitle.Text = game.Name;
         mode.BeginUpdate(); mode.Items.Clear(); foreach (var option in game.Options) mode.Items.Add(option.Name); mode.EndUpdate();
         mode.SelectedIndex = 0;
