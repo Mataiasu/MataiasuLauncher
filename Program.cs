@@ -133,7 +133,7 @@ internal static class GameScanner
             return;
         }
         var options = existing.Options.Concat(game.Options)
-            .GroupBy(o => (o.Kind, o.Target), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(o => $"{o.Kind}|{o.Target}", StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First()).ToList();
         games[key] = existing with
         {
@@ -267,8 +267,8 @@ internal static class GameScanner
         var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         var pfx86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-        if (!string.IsNullOrWhiteSpace(pf)) { roots.Add(pf); roots.Add(Path.Combine(pf, "Steam")); }
-        if (!string.IsNullOrWhiteSpace(pfx86)) { roots.Add(pfx86); roots.Add(Path.Combine(pfx86, "Steam")); }
+        if (!string.IsNullOrWhiteSpace(pf)) roots.Add(pf);
+        if (!string.IsNullOrWhiteSpace(pfx86)) roots.Add(pfx86);
         foreach (var special in new[] { "Games", "Jeux", "My Games" })
         {
             roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), special));
@@ -277,21 +277,23 @@ internal static class GameScanner
         foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady && d.DriveType == DriveType.Fixed))
         {
             roots.Add(Path.Combine(drive.RootDirectory.FullName, "Games"));
+            roots.Add(Path.Combine(drive.RootDirectory.FullName, "Jeux"));
             roots.Add(Path.Combine(drive.RootDirectory.FullName, "SteamLibrary"));
             roots.Add(Path.Combine(drive.RootDirectory.FullName, "Epic Games"));
+            roots.Add(Path.Combine(drive.RootDirectory.FullName, "GOG Games"));
         }
 
         foreach (var root in roots.Where(Directory.Exists))
         {
             try
             {
-                foreach (var dir in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories).Take(5000))
+                foreach (var dir in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories).Take(8000))
                 {
                     if (IsIgnoredPath(dir)) continue;
                     var exes = SafeEnumerateFiles(dir, "*.exe", SearchOption.TopDirectoryOnly)
-                        .Where(IsCandidateExe).Take(8).ToList();
+                        .Where(IsCandidateExe).OrderByDescending(ExecutableScore).Take(8).ToList();
                     if (exes.Count == 0) continue;
-                    var best = exes.OrderByDescending(ExecutableScore).Take(5).ToList();
+                    var best = exes.Take(5).ToList();
                     var name = CleanGameName(Path.GetFileName(dir));
                     if (string.IsNullOrWhiteSpace(name)) continue;
                     var options = new List<LaunchOption>();
@@ -351,7 +353,8 @@ internal static class GameScanner
     {
         if (string.IsNullOrWhiteSpace(install) || !Directory.Exists(install)) return;
         var smapi = SafeFindFile(install, "StardewModdingAPI.exe");
-        if (smapi != null) options.Add(new LaunchOption("SMAPI / Mods", "exe", smapi, install));
+        if (smapi != null && !options.Any(o => string.Equals(o.Target, smapi, StringComparison.OrdinalIgnoreCase)))
+            options.Add(new LaunchOption("SMAPI / Mods", "exe", smapi, install));
     }
 
     static string? SafeFindFile(string root, string fileName)
@@ -415,8 +418,7 @@ internal static class GameScanner
         if (!File.Exists(vdf)) yield break;
         foreach (var line in File.ReadLines(vdf))
         {
-            var marker = "\"path\"";
-            var idx = line.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            var idx = line.IndexOf("\"path\"", StringComparison.OrdinalIgnoreCase);
             if (idx < 0) continue;
             var parts = line.Split('"', StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 4) continue;
@@ -474,16 +476,14 @@ internal sealed class MainForm : Form
         var header = new Panel { Dock = DockStyle.Top, Height = 112, Padding = new Padding(26, 18, 26, 14), BackColor = PanelBg };
         var logo = new Label { Text = "MATAIASU", AutoSize = true, Font = new Font("Segoe UI Semibold", 25, FontStyle.Bold), ForeColor = Accent, Location = new Point(26, 12) };
         var sub = new Label { Text = "GAME LIBRARY", AutoSize = true, Font = new Font("Segoe UI", 9, FontStyle.Bold), ForeColor = Muted, Location = new Point(29, 51) };
-        search.Location = new Point(420, 31);
-        search.BackColor = Panel2; search.ForeColor = Text; search.ForeColor = Text;
+        search.Location = new Point(420, 31); search.BackColor = Panel2; search.ForeColor = Text;
         scan.Location = new Point(765, 29); scan.BackColor = Accent; scan.ForeColor = Color.White; scan.FlatAppearance.BorderSize = 0;
         search.TextChanged += (_, _) => RenderCards();
         scan.Click += async (_, _) => await ScanAsync(true);
         header.Controls.AddRange(new Control[] { logo, sub, search, scan });
 
         detail.BackColor = PanelBg;
-        selectedIcon.BackColor = Panel2;
-        selectedIcon.Location = new Point(18, 24);
+        selectedIcon.BackColor = Panel2; selectedIcon.Location = new Point(18, 24);
         selectedTitle.Location = new Point(92, 17);
         selectedInfo.Location = new Point(92, 47); selectedInfo.ForeColor = Muted;
         mode.Location = new Point(760, 36); mode.BackColor = Panel2; mode.ForeColor = Text;
@@ -509,10 +509,7 @@ internal sealed class MainForm : Form
             RenderCards();
             status.Text = $"{games.Count} jeux / applications détectés • {games.Sum(g => g.Options.Count)} modes de lancement disponibles";
         }
-        catch (Exception ex)
-        {
-            status.Text = "Erreur de scan : " + ex.Message;
-        }
+        catch (Exception ex) { status.Text = "Erreur de scan : " + ex.Message; }
         finally { scanning = false; scan.Enabled = true; scan.Text = "⟳  SCAN COMPLET"; }
     }
 
@@ -524,6 +521,7 @@ internal sealed class MainForm : Form
         foreach (var game in filtered) cards.Controls.Add(CreateGameCard(game));
         cards.ResumeLayout();
         if (selected != null && !games.Contains(selected)) SelectGame(filtered.FirstOrDefault());
+        if (selected == null && filtered.Count > 0) SelectGame(filtered[0]);
     }
 
     Control CreateGameCard(Game game)
@@ -539,7 +537,8 @@ internal sealed class MainForm : Form
         launch.FlatAppearance.BorderColor = Color.FromArgb(70, 62, 90);
         card.Controls.AddRange(new Control[] { accent, icon, title, src, modes, launch });
         void select(object? s, EventArgs e) => SelectGame(game);
-        card.Click += select; icon.Click += select; title.Click += select; src.Click += select; modes.Click += select; launch.Click += (_, _) => { SelectGame(game); LaunchSelected(); };
+        card.Click += select; icon.Click += select; title.Click += select; src.Click += select; modes.Click += select;
+        launch.Click += (_, _) => { SelectGame(game); LaunchSelected(); };
         return card;
     }
 
@@ -570,11 +569,7 @@ internal sealed class MainForm : Form
         var option = selected.Options[mode.SelectedIndex];
         try
         {
-            if (option.Kind == "uri")
-            {
-                Process.Start(new ProcessStartInfo { FileName = option.Target, UseShellExecute = true });
-                return;
-            }
+            if (option.Kind == "uri") { Process.Start(new ProcessStartInfo { FileName = option.Target, UseShellExecute = true }); return; }
             if (!string.IsNullOrWhiteSpace(option.Target) && File.Exists(option.Target))
             {
                 Process.Start(new ProcessStartInfo
@@ -588,10 +583,7 @@ internal sealed class MainForm : Form
             }
             MessageBox.Show("Le fichier de lancement n'existe plus. Lance un nouveau scan.", "Mataiasu Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "Impossible de lancer le jeu", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+        catch (Exception ex) { MessageBox.Show(ex.Message, "Impossible de lancer le jeu", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
     static void DrawIcon(Panel panel, string? exePath)
