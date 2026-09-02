@@ -459,7 +459,7 @@ internal sealed class MainForm : Form
     static readonly Color PanelBg = Color.FromArgb(24, 21, 34);
     static readonly Color Panel2 = Color.FromArgb(31, 27, 45);
     static readonly Color Accent = Color.FromArgb(163, 92, 255);
-    static readonly Color Text = Color.FromArgb(245, 242, 250);
+    static readonly Color TextColor = Color.FromArgb(245, 242, 250);
     static readonly Color Muted = Color.FromArgb(166, 158, 181);
 
     public MainForm()
@@ -469,13 +469,13 @@ internal sealed class MainForm : Form
         MinimumSize = new Size(1050, 680);
         ClientSize = new Size(1280, 820);
         BackColor = Bg;
-        ForeColor = Text;
+        ForeColor = TextColor;
         Font = new Font("Segoe UI", 10f);
 
         var header = new Panel { Dock = DockStyle.Top, Height = 112, Padding = new Padding(26, 18, 26, 14), BackColor = PanelBg };
         var logo = new Label { Text = "MATAIASU", AutoSize = true, Font = new Font("Segoe UI Semibold", 25, FontStyle.Bold), ForeColor = Accent, Location = new Point(26, 12) };
         var sub = new Label { Text = "GAME LIBRARY", AutoSize = true, Font = new Font("Segoe UI", 9, FontStyle.Bold), ForeColor = Muted, Location = new Point(29, 51) };
-        search.Location = new Point(420, 31); search.BackColor = Panel2; search.ForeColor = Text;
+        search.Location = new Point(420, 31); search.BackColor = Panel2; search.ForeColor = TextColor;
         scan.Location = new Point(765, 29); scan.BackColor = Accent; scan.ForeColor = Color.White; scan.FlatAppearance.BorderSize = 0;
         search.TextChanged += (_, _) => RenderCards();
         scan.Click += async (_, _) => await ScanAsync(true);
@@ -485,7 +485,7 @@ internal sealed class MainForm : Form
         selectedIcon.BackColor = Panel2; selectedIcon.Location = new Point(18, 24);
         selectedTitle.Location = new Point(92, 17);
         selectedInfo.Location = new Point(92, 47); selectedInfo.ForeColor = Muted;
-        mode.Location = new Point(760, 36); mode.BackColor = Panel2; mode.ForeColor = Text;
+        mode.Location = new Point(760, 36); mode.BackColor = Panel2; mode.ForeColor = TextColor;
         play.Location = new Point(970, 28); play.BackColor = Accent; play.ForeColor = Color.White; play.FlatAppearance.BorderSize = 0;
         play.Click += (_, _) => LaunchSelected();
         mode.SelectedIndexChanged += (_, _) => UpdateSelectedInfo();
@@ -529,10 +529,10 @@ internal sealed class MainForm : Form
         var accent = new Panel { Dock = DockStyle.Left, Width = 5, BackColor = game.Source.Contains("Steam", StringComparison.OrdinalIgnoreCase) ? Accent : Color.FromArgb(90, 83, 110) };
         var icon = new Panel { Location = new Point(18, 18), Size = new Size(54, 54), BackColor = Panel2 };
         DrawIcon(icon, game.IconPath);
-        var title = new Label { Text = game.Name, Location = new Point(86, 18), Size = new Size(178, 48), Font = new Font("Segoe UI Semibold", 11, FontStyle.Bold), ForeColor = Text, AutoEllipsis = true };
+        var title = new Label { Text = game.Name, Location = new Point(86, 18), Size = new Size(178, 48), Font = new Font("Segoe UI Semibold", 11, FontStyle.Bold), ForeColor = TextColor, AutoEllipsis = true };
         var src = new Label { Text = game.Source.ToUpperInvariant(), Location = new Point(86, 64), Size = new Size(178, 22), Font = new Font("Segoe UI", 8, FontStyle.Bold), ForeColor = Muted };
         var modes = new Label { Text = $"{game.Options.Count} mode{(game.Options.Count > 1 ? "s" : "")} de lancement", Location = new Point(18, 94), Size = new Size(245, 24), ForeColor = Muted };
-        var launch = new Button { Text = game.Options.Count > 1 ? "CHOISIR ▶" : "LANCER ▶", Location = new Point(18, 124), Size = new Size(245, 30), FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Text };
+        var launch = new Button { Text = game.Options.Count > 1 ? "CHOISIR ▶" : "LANCER ▶", Location = new Point(18, 124), Size = new Size(245, 30), FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = TextColor };
         launch.FlatAppearance.BorderColor = Color.FromArgb(70, 62, 90);
         card.Controls.AddRange(new Control[] { accent, icon, title, src, modes, launch });
         void select(object? s, EventArgs e) => SelectGame(game);
