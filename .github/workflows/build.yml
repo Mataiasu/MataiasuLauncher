@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -17,11 +20,45 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Stamp build commit
+        shell: pwsh
+        run: |
+          @"
+          internal static class BuildInfo
+          {
+              public const string Commit = "${{ github.sha }}";
+          }
+          "@ | Set-Content -Path BuildInfo.cs -Encoding UTF8
+
       - name: Build self-contained EXE
         run: dotnet publish MataiasuLauncher.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:PublishTrimmed=false
 
-      - name: Upload EXE
+      - name: Prepare update metadata
+        shell: pwsh
+        run: |
+          Copy-Item "bin/Release/net8.0-windows/win-x64/publish/MataiasuLauncher.exe" "MataiasuLauncher.exe" -Force
+          "${{ github.sha }}" | Set-Content "MataiasuLauncher.commit.txt" -Encoding UTF8
+
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: MataiasuLauncher-Windows-x64
-          path: bin/Release/net8.0-windows/win-x64/publish/MataiasuLauncher.exe
+          path: |
+            MataiasuLauncher.exe
+            MataiasuLauncher.commit.txt
+
+      - name: Publish rolling update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Mataiasu Launcher - latest
+          body: |
+            Automatic rolling release for the latest main commit.
+
+            Commit: ${{ github.sha }}
+          prerelease: false
+          make_latest: true
+          overwrite_files: true
+          files: |
+            MataiasuLauncher.exe
+            MataiasuLauncher.commit.txt
