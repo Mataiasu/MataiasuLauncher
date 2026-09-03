@@ -31,8 +31,10 @@ internal static class UiPolish
         applied = true;
         Application.Idle -= ApplyWhenReady;
         FixSidebar(sidebar, libraries);
-        FixStatusVisibility(status);
+        FixStatusVisibility(status, form);
         cards.Padding = new Padding(20, 18, 20, 18);
+        cards.Margin = new Padding(0);
+        cards.WrapContents = true;
         cards.BackColor = Bg;
     }
 
@@ -55,11 +57,23 @@ internal static class UiPolish
             heading.Font = new Font("Segoe UI Semibold", 10f, FontStyle.Bold);
         }
 
-        if (sideStatus != null) sideStatus.Visible = false;
+        sideStatus?.Dispose();
+
         if (manage != null) manage.Visible = false;
         if (create != null) create.Visible = false;
 
-        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 92, BackColor = SidebarBg, Tag = "UiPolishBottom" };
+        var oldBottom = sidebar.Controls.OfType<Panel>().FirstOrDefault(p => Equals(p.Tag, "UiPolishBottom"));
+        oldBottom?.Dispose();
+
+        var bottom = new Panel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 90,
+            BackColor = SidebarBg,
+            Tag = "UiPolishBottom",
+            Padding = new Padding(0, 8, 0, 0)
+        };
+
         var manageNew = new Button
         {
             Text = "⚙  Gérer les bibliothèques",
@@ -132,24 +146,31 @@ internal static class UiPolish
             var form = Application.OpenForms.OfType<MainForm>().FirstOrDefault();
             var games = form == null ? null : GetFieldObject(form, "games") as System.Collections.IEnumerable;
             var all = games?.Cast<object>().ToList() ?? new List<object>();
+
             if (name.Equals("Tous les jeux", StringComparison.OrdinalIgnoreCase)) return all.Count;
-            if (name.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase)) return all.Count(g => LibraryStore.IsFavorite(GetName(g)));
+            if (name.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase))
+                return all.Count(g => LibraryStore.IsFavorite(GetName(g)));
             if (name.Equals("Non classés", StringComparison.OrdinalIgnoreCase))
-                return all.Count(g => !LibraryStore.Load().Any(l => !l.Name.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase) && l.Games.Any(x => x.Equals(GetName(g), StringComparison.OrdinalIgnoreCase))));
+                return all.Count(g => !GameBelongsToCustomLibrary(GetName(g)));
+
             return all.Count(g => LibraryStore.Contains(name, GetName(g)));
         }
         catch { return 0; }
     }
 
-    static void FixStatusVisibility(Label status)
+    static bool GameBelongsToCustomLibrary(string gameName) =>
+        LibraryStore.Load().Any(l =>
+            !l.Name.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase) &&
+            l.Games.Any(g => g.Equals(gameName, StringComparison.OrdinalIgnoreCase)));
+
+    static void FixStatusVisibility(Label status, MainForm form)
     {
-        var parent = status.Parent;
-        var header = parent?.Controls.OfType<Panel>().FirstOrDefault(p => p != status && p.BackColor == Color.FromArgb(24, 21, 34));
+        var header = status.Parent;
         if (header == null) return;
-        status.Parent = header;
+
         status.Dock = DockStyle.None;
         status.Location = new Point(276, 82);
-        status.Size = new Size(Math.Max(260, header.Width - 300), 22);
+        status.Size = new Size(Math.Max(260, header.ClientSize.Width - 300), 22);
         status.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
         status.BackColor = Color.Transparent;
         status.ForeColor = Muted;
