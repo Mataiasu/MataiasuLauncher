@@ -34,7 +34,7 @@ internal static class UiPolish
         FixSidebar(libraries, sidebar);
         FixBottomLayout(form, status, detail, sidebar, cards);
         NormalizeLibraryButtons(libraries);
-        var timer = new Timer { Interval = 150 };
+        var timer = new System.Windows.Forms.Timer { Interval = 150 };
         timer.Tick += (_, _) => NormalizeLibraryButtons(libraries);
         timer.Start();
     }
