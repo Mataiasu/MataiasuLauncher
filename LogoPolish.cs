@@ -25,17 +25,17 @@ internal static class LogoPolish
         {
             header.Height = 124;
             logo.AutoSize = false;
-            logo.Size = new Size(320, 36);
-            logo.Location = new Point(26, 12);
-            logo.Font = new Font("Segoe UI Semibold", 24f, FontStyle.Bold);
+            logo.Size = new Size(300, 38);
+            logo.Location = new Point(26, 10);
+            logo.Font = new Font("Segoe UI Semibold", 23f, FontStyle.Bold);
             logo.TextAlign = ContentAlignment.MiddleLeft;
 
             var subtitle = FindLabels(header).FirstOrDefault(x => x.Text.Equals("GAME LIBRARY", StringComparison.OrdinalIgnoreCase));
             if (subtitle != null)
             {
                 subtitle.AutoSize = false;
-                subtitle.Size = new Size(320, 22);
-                subtitle.Location = new Point(29, 49);
+                subtitle.Size = new Size(300, 20);
+                subtitle.Location = new Point(29, 48);
                 subtitle.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
                 subtitle.TextAlign = ContentAlignment.MiddleLeft;
             }
