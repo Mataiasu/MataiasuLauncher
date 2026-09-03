@@ -10,8 +10,6 @@
     <PublishSingleFile>true</PublishSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
     <AssemblyName>MataiasuLauncher</AssemblyName>
-    <Product>Launch'aiasu</Product>
-    <AssemblyTitle>Launch'aiasu</AssemblyTitle>
     <RootNamespace>MataiasuLauncher</RootNamespace>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
@@ -22,5 +20,6 @@
     <Compile Include="LibraryStore.cs" />
     <Compile Include="DeepExeScanner.cs" />
     <Compile Include="LogoPolish.cs" />
+    <Compile Include="ArtworkPolish.cs" />
   </ItemGroup>
 </Project>
