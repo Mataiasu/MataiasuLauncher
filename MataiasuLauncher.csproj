@@ -10,6 +10,8 @@
     <PublishSingleFile>true</PublishSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
     <AssemblyName>MataiasuLauncher</AssemblyName>
+    <Product>Launch'aiasu</Product>
+    <AssemblyTitle>Launch'aiasu</AssemblyTitle>
     <RootNamespace>MataiasuLauncher</RootNamespace>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
