@@ -21,5 +21,6 @@
     <Compile Include="DeepExeScanner.cs" />
     <Compile Include="LogoPolish.cs" />
     <Compile Include="ArtworkPolish.cs" />
+    <Compile Include="UiPolish.cs" />
   </ItemGroup>
 </Project>
