@@ -30,6 +30,129 @@ jobs:
           }
           "@ | Set-Content -Path BuildInfo.cs -Encoding UTF8
 
+      - name: Patch updater and branding for release build
+        shell: pwsh
+        run: |
+          $program = Get-Content -Raw Program.cs
+          $updater = @'
+          internal static class LauncherUpdater
+          {
+              const string CommitUrl = "https://github.com/Mataiasu/MataiasuLauncher/releases/download/latest/MataiasuLauncher.commit.txt";
+              const string ExeUrl = "https://github.com/Mataiasu/MataiasuLauncher/releases/download/latest/MataiasuLauncher.exe";
+              const string ExeName = "MataiasuLauncher.exe";
+              static readonly HttpClient Http = CreateClient();
+
+              static HttpClient CreateClient()
+              {
+                  var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                  client.DefaultRequestHeaders.UserAgent.ParseAdd("Launch'aiasu/1.0");
+                  return client;
+              }
+
+              public static async Task<UpdateResult> CheckAndApplyAsync(bool interactive = false)
+              {
+                  try
+                  {
+                      var currentCommit = BuildInfo.Commit.Trim();
+                      if (currentCommit.Equals("dev", StringComparison.OrdinalIgnoreCase))
+                          return UpdateResult.DevBuild;
+
+                      using var versionResponse = await Http.GetAsync(CommitUrl + "?v=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                      if (!versionResponse.IsSuccessStatusCode)
+                          return UpdateResult.NoPublishedBuild;
+
+                      var publishedCommit = (await versionResponse.Content.ReadAsStringAsync()).Trim();
+                      if (string.IsNullOrWhiteSpace(publishedCommit))
+                          return UpdateResult.NoPublishedBuild;
+
+                      if (publishedCommit.Equals(currentCommit, StringComparison.OrdinalIgnoreCase))
+                          return UpdateResult.UpToDate;
+
+                      var currentExe = Environment.ProcessPath;
+                      if (string.IsNullOrWhiteSpace(currentExe) || !File.Exists(currentExe))
+                          return UpdateResult.Failed;
+
+                      var currentDir = Path.GetDirectoryName(currentExe);
+                      if (string.IsNullOrWhiteSpace(currentDir) || !CanWriteDirectory(currentDir))
+                          return UpdateResult.NotWritable;
+
+                      var tempRoot = Path.Combine(Path.GetTempPath(), "Launch'aiasu", "update_" + Guid.NewGuid().ToString("N"));
+                      Directory.CreateDirectory(tempRoot);
+                      var downloaded = Path.Combine(tempRoot, ExeName);
+
+                      using (var response = await Http.GetAsync(ExeUrl + "?v=" + publishedCommit, HttpCompletionOption.ResponseHeadersRead))
+                      {
+                          response.EnsureSuccessStatusCode();
+                          await using var input = await response.Content.ReadAsStreamAsync();
+                          await using var output = File.Create(downloaded);
+                          await input.CopyToAsync(output);
+                      }
+
+                      if (!File.Exists(downloaded) || new FileInfo(downloaded).Length < 1_000_000)
+                          return UpdateResult.Failed;
+
+                      var script = Path.Combine(tempRoot, "apply-update.ps1");
+                      var safeDownloaded = downloaded.Replace("'", "''");
+                      var safeCurrent = currentExe.Replace("'", "''");
+                      var safeTemp = tempRoot.Replace("'", "''");
+                      var scriptContent = $@"
+          $src='{safeDownloaded}'
+          $dst='{safeCurrent}'
+          $tmp='{safeTemp}'
+          Start-Sleep -Milliseconds 1200
+          $ok=$false
+          for($i=0;$i -lt 60;$i++) {{
+            try {{
+              Copy-Item -LiteralPath $src -Destination $dst -Force -ErrorAction Stop
+              if((Get-Item $dst).Length -eq (Get-Item $src).Length) {{ $ok=$true; break }}
+            }} catch {{}}
+            Start-Sleep -Seconds 1
+          }}
+          if($ok) {{ Start-Process -FilePath $dst }}
+          Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+          ";
+                      await File.WriteAllTextAsync(script, scriptContent);
+
+                      Process.Start(new ProcessStartInfo
+                      {
+                          FileName = "powershell.exe",
+                          Arguments = $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{script}\"",
+                          UseShellExecute = false,
+                          CreateNoWindow = true,
+                          WindowStyle = ProcessWindowStyle.Hidden
+                      });
+
+                      return UpdateResult.Updated;
+                  }
+                  catch
+                  {
+                      return UpdateResult.Failed;
+                  }
+              }
+
+              static bool CanWriteDirectory(string directory)
+              {
+                  try
+                  {
+                      var test = Path.Combine(directory, ".launchaiasu_write_test_" + Guid.NewGuid().ToString("N"));
+                      using (File.Create(test)) { }
+                      File.Delete(test);
+                      return true;
+                  }
+                  catch { return false; }
+              }
+          }
+          '@
+          $program = [regex]::Replace($program, '(?s)internal static class LauncherUpdater\s*\{.*?\r?\n\}\r?\n\r?\ninternal static class GameScanner', ($updater + "`r`n`r`ninternal static class GameScanner"))
+          $program = $program.Replace('Mataiasu Launcher', "Launch'aiasu")
+          $program = $program.Replace('MATAIASU', "LAUNCH'aiasu")
+          $program = $program.Replace('GAME LIBRARY', 'GAME LAUNCHER')
+          Set-Content -Path Program.cs -Value $program -Encoding UTF8
+
+          $logo = Get-Content -Raw LogoPolish.cs
+          $logo = $logo.Replace('MATAIASU', "LAUNCH'aiasu").Replace('GAME LIBRARY', 'GAME LAUNCHER')
+          Set-Content -Path LogoPolish.cs -Value $logo -Encoding UTF8
+
       - name: Build self-contained EXE
         run: dotnet publish MataiasuLauncher.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:PublishTrimmed=false
 
