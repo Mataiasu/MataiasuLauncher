@@ -11,5 +11,14 @@
     <PublishTrimmed>false</PublishTrimmed>
     <AssemblyName>MataiasuLauncher</AssemblyName>
     <RootNamespace>MataiasuLauncher</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="BuildInfo.cs" />
+    <Compile Include="LibraryStore.cs" />
+    <Compile Include="DeepExeScanner.cs" />
+    <Compile Include="LogoPolish.cs" />
+  </ItemGroup>
 </Project>
