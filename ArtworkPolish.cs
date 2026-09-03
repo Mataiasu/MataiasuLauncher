@@ -3,6 +3,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
@@ -55,13 +56,13 @@ internal static class ArtworkPolish
             }
 
             if (!string.IsNullOrWhiteSpace(appId))
-                _ = LoadSteamArtworkAsync(card, appId, gameName);
+                _ = LoadSteamArtworkAsync(card, appId);
             else
-                _ = LoadLocalArtworkAsync(card, iconPath);
+                _ = LoadLocalArtworkAsync(card, iconPath, gameName);
         }
     }
 
-    static async Task LoadSteamArtworkAsync(Control card, string appId, string gameName)
+    static async Task LoadSteamArtworkAsync(Control card, string appId)
     {
         try
         {
@@ -75,8 +76,9 @@ internal static class ArtworkPolish
                 {
                     var urls = new[]
                     {
-                        $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/library_600x900.jpg",
                         $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/library_600x900_2x.jpg",
+                        $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/library_600x900.jpg",
+                        $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/library_600x900.jpg",
                         $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg"
                     };
 
@@ -105,20 +107,28 @@ internal static class ArtworkPolish
 
             if (!File.Exists(cachePath) || new FileInfo(cachePath).Length <= 20_000) return;
             using var image = Image.FromFile(cachePath);
-            var bitmap = new Bitmap(image);
-            ApplyToCard(card, bitmap);
+            ApplyToCard(card, new Bitmap(image));
         }
         catch { }
     }
 
-    static async Task LoadLocalArtworkAsync(Control card, string? iconPath)
+    static async Task LoadLocalArtworkAsync(Control card, string? iconPath, string gameName)
     {
-        await Task.Yield();
         try
         {
+            Directory.CreateDirectory(CacheRoot);
+
+            // When a local game is also sold on Steam, use a real cover instead of the EXE icon.
+            var discovered = await TryLoadStoreArtworkAsync(gameName);
+            if (discovered != null)
+            {
+                ApplyToCard(card, discovered);
+                return;
+            }
+
+            await Task.Yield();
             if (string.IsNullOrWhiteSpace(iconPath) || !File.Exists(iconPath)) return;
 
-            Directory.CreateDirectory(CacheRoot);
             var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
                 System.Text.Encoding.UTF8.GetBytes(iconPath))).Substring(0, 20);
             var cachePath = Path.Combine(CacheRoot, $"local_{key}_256.png");
@@ -137,6 +147,109 @@ internal static class ArtworkPolish
             ApplyToCard(card, new Bitmap(image));
         }
         catch { }
+    }
+
+    static async Task<Bitmap?> TryLoadStoreArtworkAsync(string gameName)
+    {
+        try
+        {
+            var normalized = CleanSearchName(gameName);
+            if (normalized.Length < 3) return null;
+
+            var safeKey = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(normalized))).Substring(0, 20);
+            var cachePath = Path.Combine(CacheRoot, $"store_{safeKey}_512.png");
+
+            if (File.Exists(cachePath) && new FileInfo(cachePath).Length > 20_000)
+            {
+                using var cached = Image.FromFile(cachePath);
+                return new Bitmap(cached);
+            }
+
+            var url = "https://store.steampowered.com/api/storesearch/?term=" + Uri.EscapeDataString(normalized) + "&l=english&cc=fr";
+            using var response = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            if (!response.IsSuccessStatusCode) return null;
+
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            if (!doc.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+                return null;
+
+            JsonElement? best = null;
+            var bestScore = int.MinValue;
+            foreach (var item in items.EnumerateArray().Take(10))
+            {
+                var itemName = item.TryGetProperty("name", out var n) ? n.GetString() : null;
+                if (string.IsNullOrWhiteSpace(itemName)) continue;
+                var score = SimilarityScore(normalized, itemName);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = item;
+                }
+            }
+
+            if (best is null || bestScore < 60) return null;
+
+            var selected = best.Value;
+            var appId = selected.TryGetProperty("id", out var id) ? id.ToString() : null;
+            if (string.IsNullOrWhiteSpace(appId)) return null;
+
+            var sourcePath = Path.Combine(CacheRoot, $"store_{safeKey}_source.jpg");
+            var sourceUrls = new[]
+            {
+                $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/library_600x900_2x.jpg",
+                $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/library_600x900.jpg",
+                $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg"
+            };
+
+            if (!File.Exists(sourcePath) || new FileInfo(sourcePath).Length < 10_000)
+            {
+                foreach (var sourceUrl in sourceUrls)
+                {
+                    try
+                    {
+                        using var imgResponse = await Http.GetAsync(sourceUrl, HttpCompletionOption.ResponseHeadersRead);
+                        if (!imgResponse.IsSuccessStatusCode) continue;
+                        await using var input = await imgResponse.Content.ReadAsStreamAsync();
+                        await using var output = File.Create(sourcePath);
+                        await input.CopyToAsync(output);
+                        if (new FileInfo(sourcePath).Length > 10_000) break;
+                    }
+                    catch { }
+                }
+            }
+
+            if (!File.Exists(sourcePath) || new FileInfo(sourcePath).Length <= 10_000) return null;
+
+            using var source = Image.FromFile(sourcePath);
+            using var polished = CreateCover(source, 512, 512);
+            polished.Save(cachePath, ImageFormat.Png);
+            return new Bitmap(polished);
+        }
+        catch { return null; }
+    }
+
+    static int SimilarityScore(string expected, string actual)
+    {
+        var a = CleanSearchName(expected);
+        var b = CleanSearchName(actual);
+        if (a.Equals(b, StringComparison.OrdinalIgnoreCase)) return 100;
+        if (b.Contains(a, StringComparison.OrdinalIgnoreCase) || a.Contains(b, StringComparison.OrdinalIgnoreCase)) return 90;
+
+        var aTokens = a.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var bTokens = new HashSet<string>(b.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), StringComparer.OrdinalIgnoreCase);
+        if (aTokens.Length == 0) return 0;
+        var common = aTokens.Count(t => bTokens.Contains(t));
+        return 50 + (int)Math.Round(40.0 * common / aTokens.Length);
+    }
+
+    static string CleanSearchName(string value)
+    {
+        var cleaned = Regex.Replace(value ?? string.Empty, @"\([^)]*\)|\[[^\]]*\]", " ");
+        cleaned = cleaned.Replace("Launcher", " ", StringComparison.OrdinalIgnoreCase)
+                         .Replace("Client", " ", StringComparison.OrdinalIgnoreCase)
+                         .Replace("Game", " ", StringComparison.OrdinalIgnoreCase);
+        return Regex.Replace(cleaned, @"\s+", " ").Trim();
     }
 
     static Bitmap CreateCover(Image source, int width, int height)
