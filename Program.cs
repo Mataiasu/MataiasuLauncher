@@ -21,7 +21,7 @@ internal static class LauncherUpdater
     static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("MataiasuLauncher", "1.0"));
+        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Launch'aiasu", "1.0"));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
     }
@@ -56,7 +56,7 @@ internal static class LauncherUpdater
             var currentDir = Path.GetDirectoryName(currentExe);
             if (string.IsNullOrWhiteSpace(currentDir) || !CanWriteDirectory(currentDir)) return UpdateResult.NotWritable;
 
-            var tempRoot = Path.Combine(Path.GetTempPath(), "MataiasuLauncher", "update_" + Guid.NewGuid().ToString("N"));
+            var tempRoot = Path.Combine(Path.GetTempPath(), "Launch'aiasu", "update_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempRoot);
             var downloaded = Path.Combine(tempRoot, ExeName);
             using (var response = await Http.GetAsync(exeUrl, HttpCompletionOption.ResponseHeadersRead))
@@ -85,7 +85,6 @@ for($i=0;$i -lt 60;$i++) {{
   Start-Sleep -Seconds 1
 }}
 if($ok) {{ Start-Process -FilePath $dst }}
-else {{ Start-Process -FilePath $dst }}
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 ";
             await File.WriteAllTextAsync(script, scriptContent);
@@ -107,7 +106,7 @@ Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     {
         try
         {
-            var test = Path.Combine(directory, ".mataiasu_write_test_" + Guid.NewGuid().ToString("N"));
+            var test = Path.Combine(directory, ".launchaiasu_write_test_" + Guid.NewGuid().ToString("N"));
             using (File.Create(test)) { }
             File.Delete(test);
             return true;
@@ -296,6 +295,7 @@ internal static class GameScanner
         if (IsBadGameName(gameName)) return false;
         var file = Path.GetFileNameWithoutExtension(exe);
         if (file.Contains("benchmark", StringComparison.OrdinalIgnoreCase)) return false;
+        if (file.Contains("launcher", StringComparison.OrdinalIgnoreCase) && gameName.Contains("launcher", StringComparison.OrdinalIgnoreCase)) return false;
         if (gameName.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) || gameName.Contains("Overwolf", StringComparison.OrdinalIgnoreCase) || gameName.Contains("Visual Studio", StringComparison.OrdinalIgnoreCase)) return false;
         return true;
     }
@@ -317,11 +317,30 @@ internal static class GameScanner
     static IEnumerable<string> FindBestExecutables(string install, int max) => SafeEnumerateFiles(install, "*.exe", SearchOption.TopDirectoryOnly).Where(IsCandidateExe).OrderByDescending(ExecutableScore).ThenByDescending(FileLengthSafe).Take(max);
     static int ExecutableScore(string path) { var score = 0; var file = Path.GetFileNameWithoutExtension(path); if (file.Contains("game", StringComparison.OrdinalIgnoreCase)) score += 40; if (file.Contains("win64", StringComparison.OrdinalIgnoreCase)) score += 15; if (file.Contains("shipping", StringComparison.OrdinalIgnoreCase)) score += 10; if (GetProductName(path) != null) score += 20; score += (int)Math.Min(30, FileLengthSafe(path) / 50_000_000); return score; }
 
-    static void AddExeOption(List<LaunchOption> options, string exe, string? workingDirectory) { if (!File.Exists(exe) || options.Any(o => string.Equals(o.Target, exe, StringComparison.OrdinalIgnoreCase))) return; var label = FriendlyExeName(Path.GetFileNameWithoutExtension(exe)); if (label.Equals("Stardew Valley", StringComparison.OrdinalIgnoreCase)) label = "Normal"; options.Add(new LaunchOption(label, "exe", exe, workingDirectory)); }
-    static void AddSpecialLaunchers(List<LaunchOption> options, string install) { var smapi = SafeEnumerateFiles(install, "StardewModdingAPI.exe", SearchOption.TopDirectoryOnly).FirstOrDefault(); if (smapi != null) AddExeOptionWithName(options, "SMAPI / Mods", smapi, install); }
+    static void AddExeOption(List<LaunchOption> options, string exe, string? workingDirectory)
+    {
+        if (!File.Exists(exe) || options.Any(o => string.Equals(o.Target, exe, StringComparison.OrdinalIgnoreCase))) return;
+        var label = FriendlyExeName(Path.GetFileNameWithoutExtension(exe));
+        if (label.Equals("Stardew Valley", StringComparison.OrdinalIgnoreCase)) label = "Normal";
+        if (label.EndsWith(" Launcher", StringComparison.OrdinalIgnoreCase) && options.Count > 0) label = "Launcher";
+        options.Add(new LaunchOption(label, "exe", exe, workingDirectory));
+    }
+
+    static void AddSpecialLaunchers(List<LaunchOption> options, string install)
+    {
+        var smapi = SafeEnumerateFiles(install, "StardewModdingAPI.exe", SearchOption.TopDirectoryOnly).FirstOrDefault();
+        if (smapi != null) AddExeOptionWithName(options, "SMAPI / Mods", smapi, install);
+    }
+
     static void AddExeOptionWithName(List<LaunchOption> options, string name, string exe, string workingDirectory) { if (File.Exists(exe) && !options.Any(o => string.Equals(o.Target, exe, StringComparison.OrdinalIgnoreCase))) options.Add(new LaunchOption(name, "exe", exe, workingDirectory)); }
     static bool IsCandidateExe(string path) { var file = Path.GetFileName(path); return !IgnoredExeNames.Any(x => string.Equals(x, file, StringComparison.OrdinalIgnoreCase)) && !IgnoredPathParts.Any(x => path.Contains(x, StringComparison.OrdinalIgnoreCase)); }
-    static bool IsBadGameName(string name) { if (string.IsNullOrWhiteSpace(name) || name.Length < 2) return true; if (Regex.IsMatch(name.Trim(), @"^v?\d+(\.\d+){0,5}$", RegexOptions.IgnoreCase)) return true; var bad = new[] { "Microsoft Visual C++", "Microsoft .NET", "Redistributable", "DirectX", "OverwolfBenchmarking" }; return bad.Any(x => name.Contains(x, StringComparison.OrdinalIgnoreCase)); }
+    static bool IsBadGameName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length < 2) return true;
+        if (Regex.IsMatch(name.Trim(), @"^v?\d+(\.\d+){0,5}$", RegexOptions.IgnoreCase)) return true;
+        var bad = new[] { "Microsoft Visual C++", "Microsoft .NET", "Redistributable", "DirectX", "OverwolfBenchmarking", "7-Zip", "AIDA64", "ActiveImage Protector", "AI Engine OSD", "3DMark", "AGT" };
+        return bad.Any(x => name.Contains(x, StringComparison.OrdinalIgnoreCase));
+    }
     static string CleanDisplayName(string? value) { if (string.IsNullOrWhiteSpace(value)) return string.Empty; return Regex.Replace(value.Trim().Replace('_', ' '), @"\s+", " "); }
     static string FriendlyExeName(string value) => CleanDisplayName(value.Replace('-', ' '));
     static string? NormalizeDirectory(string? value) { if (string.IsNullOrWhiteSpace(value)) return null; var p = value.Trim().Trim('"'); return Directory.Exists(p) ? p : null; }
@@ -336,143 +355,366 @@ internal static class GameScanner
 
 internal sealed class MainForm : Form
 {
-    readonly FlowLayoutPanel cards = new() { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(22), WrapContents = true };
-    readonly TextBox search = new() { Width = 310, Height = 34, PlaceholderText = "Rechercher un jeu...", BorderStyle = BorderStyle.FixedSingle };
-    readonly Button scan = new() { Text = "⟳  SCAN COMPLET", Width = 150, Height = 38, FlatStyle = FlatStyle.Flat };
-    readonly Button update = new() { Text = "↻  MISE À JOUR", Width = 150, Height = 38, FlatStyle = FlatStyle.Flat };
-    readonly Button play = new() { Text = "▶  JOUER", Width = 190, Height = 48, FlatStyle = FlatStyle.Flat };
-    readonly ComboBox mode = new() { Width = 190, DropDownStyle = ComboBoxStyle.DropDownList };
-    readonly ListBox libraries = new() { BorderStyle = BorderStyle.None, IntegralHeight = false };
-    readonly Label status = new() { AutoSize = true, Text = "Prêt" };
-    readonly Label selectedTitle = new() { AutoSize = true, Font = new Font("Segoe UI Semibold", 18, FontStyle.Bold) };
-    readonly Label selectedInfo = new() { AutoSize = true, MaximumSize = new Size(600, 55) };
-    readonly Panel selectedIcon = new() { Width = 54, Height = 54 };
-    readonly Panel detail = new() { Dock = DockStyle.Bottom, Height = 118, Padding = new Padding(18) };
-    readonly Panel sidebar = new() { Dock = DockStyle.Left, Width = 235, Padding = new Padding(16, 18, 12, 14) };
-    List<Game> games = new(); Game? selected; string selectedLibrary = "Tous les jeux"; bool scanning;
+    readonly FlowLayoutPanel cards = new() { Dock = DockStyle.Fill, AutoScroll = true, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Padding = new Padding(18, 12, 8, 18) };
+    readonly TextBox search = new() { Dock = DockStyle.Fill, PlaceholderText = "Rechercher un jeu...", BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0) };
+    readonly Button scan = new() { Text = "⟳  Scanner", Height = 38, Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat, Margin = new Padding(8, 0, 0, 0) };
+    readonly Button update = new() { Text = "↻  Mise à jour", Height = 38, Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat, Margin = new Padding(8, 0, 0, 0) };
+    readonly FlowLayoutPanel libraryButtons = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(0, 4, 4, 4) };
+    readonly Label countLabel = new() { AutoSize = true };
+    readonly Label status = new() { AutoSize = false, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
+    readonly Label selectedTitle = new() { AutoSize = false, Font = new Font("Segoe UI Semibold", 18, FontStyle.Bold), Dock = DockStyle.Top, Height = 30 };
+    readonly Label selectedInfo = new() { AutoSize = false, Dock = DockStyle.Fill, MaximumSize = new Size(700, 70) };
+    readonly Panel selectedIcon = new() { Width = 68, Height = 68, Margin = new Padding(0, 0, 12, 0) };
+    readonly ComboBox mode = new() { Width = 210, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 0, 10, 0) };
+    readonly Button play = new() { Text = "▶  JOUER", Width = 170, Height = 46, FlatStyle = FlatStyle.Flat };
+    readonly Panel sidebar = new() { Dock = DockStyle.Fill, Padding = new Padding(16, 18, 14, 12) };
+    readonly Panel detail = new() { Dock = DockStyle.Bottom, Height = 108, Padding = new Padding(18, 14, 18, 14) };
+    readonly TableLayoutPanel root = new() { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+    List<Game> games = new();
+    Game? selected;
+    string selectedLibrary = "Tous les jeux";
+    bool scanning;
 
-    static readonly Color Bg = Color.FromArgb(14, 12, 20), PanelBg = Color.FromArgb(24, 21, 34), Panel2 = Color.FromArgb(31, 27, 45), SidebarBg = Color.FromArgb(20, 17, 29), Accent = Color.FromArgb(163, 92, 255), TextColor = Color.FromArgb(245, 242, 250), Muted = Color.FromArgb(166, 158, 181);
+    static readonly Color Bg = Color.FromArgb(12, 10, 17);
+    static readonly Color HeaderBg = Color.FromArgb(22, 18, 31);
+    static readonly Color CardBg = Color.FromArgb(25, 21, 35);
+    static readonly Color CardHover = Color.FromArgb(33, 28, 46);
+    static readonly Color SidebarBg = Color.FromArgb(18, 15, 25);
+    static readonly Color InputBg = Color.FromArgb(29, 24, 40);
+    static readonly Color Accent = Color.FromArgb(170, 92, 255);
+    static readonly Color AccentSoft = Color.FromArgb(116, 64, 176);
+    static readonly Color TextColor = Color.FromArgb(246, 242, 251);
+    static readonly Color Muted = Color.FromArgb(164, 155, 179);
 
     public MainForm()
     {
-        Text = "Mataiasu Launcher"; StartPosition = FormStartPosition.CenterScreen; MinimumSize = new Size(1050, 700); ClientSize = new Size(1360, 820); BackColor = Bg; ForeColor = TextColor; Font = new Font("Segoe UI", 10f);
-        LibraryStore.Create("★ Favoris"); BuildSidebar();
+        Text = "Launch'aiasu";
+        StartPosition = FormStartPosition.CenterScreen;
+        MinimumSize = new Size(1100, 720);
+        ClientSize = new Size(1440, 860);
+        BackColor = Bg;
+        ForeColor = TextColor;
+        Font = new Font("Segoe UI", 10f);
+        KeyPreview = true;
 
-        var header = new Panel { Dock = DockStyle.Top, Height = 112, Padding = new Padding(26, 18, 20, 14), BackColor = PanelBg };
-        var logo = new Label { Text = "MATAIASU", AutoSize = true, Font = new Font("Segoe UI Semibold", 25, FontStyle.Bold), ForeColor = Accent, Location = new Point(26, 12) };
-        var sub = new Label { Text = "GAME LIBRARY", AutoSize = true, Font = new Font("Segoe UI", 9, FontStyle.Bold), ForeColor = Muted, Location = new Point(29, 51) };
-        search.Location = new Point(430, 31); search.BackColor = Panel2; search.ForeColor = TextColor; scan.Location = new Point(765, 29); update.Location = new Point(930, 29); StyleButton(scan); StyleButton(update);
-        search.TextChanged += (_, _) => RenderCards(); scan.Click += async (_, _) => await ScanAsync(); update.Click += async (_, _) => await ManualUpdateAsync(); header.Controls.AddRange(new Control[] { logo, sub, search, scan, update });
+        LibraryStore.Create("★ Favoris");
+        BuildLayout();
+        BuildSidebar();
+        RefreshLibraries();
 
-        detail.BackColor = PanelBg; selectedIcon.BackColor = Panel2; selectedIcon.Location = new Point(18, 24); selectedTitle.Location = new Point(92, 17); selectedInfo.Location = new Point(92, 47); selectedInfo.ForeColor = Muted; mode.Location = new Point(720, 36); mode.BackColor = Panel2; mode.ForeColor = TextColor; play.Location = new Point(960, 28); StyleButton(play); play.Size = new Size(190, 48); play.Click += (_, _) => LaunchSelected(); mode.SelectedIndexChanged += (_, _) => UpdateSelectedInfo(); detail.Controls.AddRange(new Control[] { selectedIcon, selectedTitle, selectedInfo, mode, play });
+        search.BackColor = InputBg;
+        search.ForeColor = TextColor;
+        search.BorderStyle = BorderStyle.FixedSingle;
+        search.TextChanged += (_, _) => RenderCards();
+        scan.Click += async (_, _) => await ScanAsync();
+        update.Click += async (_, _) => await ManualUpdateAsync();
+        play.Click += (_, _) => LaunchSelected();
+        mode.SelectedIndexChanged += (_, _) => UpdateSelectedInfo();
+        Shown += async (_, _) => await ScanAsync();
+    }
 
-        status.Dock = DockStyle.Top; status.Height = 24; status.Padding = new Padding(24, 4, 0, 0); status.ForeColor = Muted; status.BackColor = Bg;
-        Controls.Add(cards); Controls.Add(detail); Controls.Add(status); Controls.Add(header); Controls.Add(sidebar); sidebar.BringToFront(); Shown += async (_, _) => await ScanAsync();
+    void BuildLayout()
+    {
+        root.BackColor = Bg;
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        Controls.Add(root);
+
+        var header = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = HeaderBg, ColumnCount = 4, RowCount = 1, Padding = new Padding(22, 14, 22, 14) };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 250));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
+
+        var brand = new Panel { Dock = DockStyle.Fill };
+        var logo = new Label { Text = "LAUNCH'aiasu", AutoSize = false, Dock = DockStyle.Top, Height = 38, Font = new Font("Segoe UI Semibold", 24, FontStyle.Bold), ForeColor = Accent, TextAlign = ContentAlignment.MiddleLeft };
+        var sub = new Label { Text = "GAME LAUNCHER", AutoSize = false, Dock = DockStyle.Top, Height = 20, Font = new Font("Segoe UI", 8, FontStyle.Bold), ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft };
+        brand.Controls.Add(sub); brand.Controls.Add(logo);
+        header.Controls.Add(brand, 0, 0);
+        header.Controls.Add(search, 1, 0);
+        header.Controls.Add(scan, 2, 0);
+        header.Controls.Add(update, 3, 0);
+        StyleButton(scan); StyleButton(update);
+
+        var body = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, BackColor = Bg, Margin = new Padding(0) };
+        body.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 238));
+        body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        body.Controls.Add(sidebar, 0, 0);
+        body.Controls.Add(cards, 1, 0);
+
+        detail.BackColor = HeaderBg;
+        BuildDetailPanel();
+
+        status.BackColor = Bg; status.ForeColor = Muted; status.Padding = new Padding(22, 0, 0, 0);
+
+        root.Controls.Add(header, 0, 0);
+        root.Controls.Add(body, 0, 1);
+        root.Controls.Add(status, 0, 2);
+        Controls.Add(detail);
+        detail.BringToFront();
+    }
+
+    void BuildDetailPanel()
+    {
+        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, BackColor = HeaderBg, Margin = new Padding(0) };
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220));
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 185));
+
+        selectedIcon.BackColor = InputBg;
+        table.Controls.Add(selectedIcon, 0, 0);
+
+        var info = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 2, 12, 0) };
+        selectedTitle.ForeColor = TextColor;
+        selectedInfo.ForeColor = Muted;
+        info.Controls.Add(selectedInfo); info.Controls.Add(selectedTitle);
+        table.Controls.Add(info, 1, 0);
+
+        mode.Dock = DockStyle.Fill;
+        mode.BackColor = InputBg;
+        mode.ForeColor = TextColor;
+        table.Controls.Add(mode, 2, 0);
+
+        play.Dock = DockStyle.Fill;
+        StyleButton(play);
+        table.Controls.Add(play, 3, 0);
+        detail.Controls.Add(table);
+        SelectGame(null);
     }
 
     void BuildSidebar()
     {
         sidebar.BackColor = SidebarBg;
-        var heading = new Label { Text = "MA BIBLIOTHÈQUE", Dock = DockStyle.Top, Height = 32, Font = new Font("Segoe UI", 10, FontStyle.Bold), ForeColor = Muted };
-        libraries.Dock = DockStyle.Fill; libraries.BackColor = SidebarBg; libraries.ForeColor = TextColor; libraries.Font = new Font("Segoe UI", 10f); libraries.SelectedIndexChanged += (_, _) => { if (libraries.SelectedItem is string name) { selectedLibrary = name; RenderCards(); } };
-        var manage = new Button { Text = "⚙  GÉRER LES BIBLIOTHÈQUES", Dock = DockStyle.Bottom, Height = 34, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = TextColor }; manage.FlatAppearance.BorderSize = 0; manage.Click += (_, _) => ManageLibraries();
-        var create = new Button { Text = "+  CRÉER UNE BIBLIOTHÈQUE", Dock = DockStyle.Bottom, Height = 42, FlatStyle = FlatStyle.Flat, BackColor = Accent, ForeColor = Color.White }; create.FlatAppearance.BorderSize = 0; create.Click += (_, _) => CreateLibrary();
-        var sideStatus = new Label { Text = "Organise tes jeux comme tu veux.", Dock = DockStyle.Bottom, Height = 32, ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft };
-        sidebar.Controls.Add(libraries); sidebar.Controls.Add(manage); sidebar.Controls.Add(create); sidebar.Controls.Add(sideStatus); sidebar.Controls.Add(heading); RefreshLibraries();
+        sidebar.Controls.Clear();
+
+        var title = new Label { Text = "MA BIBLIOTHÈQUE", Dock = DockStyle.Top, Height = 28, Font = new Font("Segoe UI", 10, FontStyle.Bold), ForeColor = Muted };
+        var libraryCaption = new Label { Text = "Organise tes jeux comme tu veux", Dock = DockStyle.Bottom, Height = 26, ForeColor = Muted, AutoEllipsis = true };
+        var actions = new Panel { Dock = DockStyle.Bottom, Height = 104 };
+        var manage = new Button { Text = "⚙  Gérer les bibliothèques", Dock = DockStyle.Bottom, Height = 34, FlatStyle = FlatStyle.Flat, BackColor = CardBg, ForeColor = TextColor };
+        var create = new Button { Text = "+  Créer une bibliothèque", Dock = DockStyle.Bottom, Height = 42, FlatStyle = FlatStyle.Flat, BackColor = Accent, ForeColor = Color.White };
+        manage.FlatAppearance.BorderSize = 0; create.FlatAppearance.BorderSize = 0;
+        manage.Click += (_, _) => ManageLibraries(); create.Click += (_, _) => CreateLibrary();
+        actions.Controls.Add(manage); actions.Controls.Add(create);
+
+        sidebar.Controls.Add(libraryButtons);
+        sidebar.Controls.Add(actions);
+        sidebar.Controls.Add(libraryCaption);
+        sidebar.Controls.Add(title);
     }
 
     void RefreshLibraries()
     {
-        var names = new List<string> { "Tous les jeux", "★ Favoris", "Non classés" }; names.AddRange(LibraryStore.Load().Where(x => !x.Name.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase)).Select(x => x.Name).OrderBy(x => x));
-        var old = selectedLibrary; libraries.BeginUpdate(); libraries.Items.Clear(); libraries.Items.AddRange(names.Cast<object>().ToArray()); libraries.EndUpdate(); selectedLibrary = names.FirstOrDefault(x => x.Equals(old, StringComparison.OrdinalIgnoreCase)) ?? names[0]; libraries.SelectedItem = selectedLibrary;
+        var names = new List<string> { "Tous les jeux", "★ Favoris", "Non classés" };
+        names.AddRange(LibraryStore.Load().Where(x => !x.Name.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase)).Select(x => x.Name).OrderBy(x => x));
+        selectedLibrary = names.FirstOrDefault(x => x.Equals(selectedLibrary, StringComparison.OrdinalIgnoreCase)) ?? names[0];
+
+        libraryButtons.SuspendLayout();
+        foreach (Control c in libraryButtons.Controls.Cast<Control>().ToList()) c.Dispose();
+        libraryButtons.Controls.Clear();
+        foreach (var name in names) libraryButtons.Controls.Add(CreateLibraryButton(name));
+        libraryButtons.ResumeLayout();
+    }
+
+    Control CreateLibraryButton(string name)
+    {
+        var count = name.Equals("Tous les jeux", StringComparison.OrdinalIgnoreCase) ? games.Count :
+                    name.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase) ? games.Count(g => LibraryStore.IsFavorite(g.Name)) :
+                    name.Equals("Non classés", StringComparison.OrdinalIgnoreCase) ? games.Count(g => !LibraryStore.Load().Any(l => l.Games.Any(x => x.Equals(g.Name, StringComparison.OrdinalIgnoreCase)))) :
+                    games.Count(g => LibraryStore.Contains(name, g.Name));
+        var button = new Button { Width = 204, Height = 38, Text = $"{name}   {count}", TextAlign = ContentAlignment.MiddleLeft, FlatStyle = FlatStyle.Flat, BackColor = name.Equals(selectedLibrary, StringComparison.OrdinalIgnoreCase) ? Color.FromArgb(48, 34, 68) : SidebarBg, ForeColor = name.Equals(selectedLibrary, StringComparison.OrdinalIgnoreCase) ? Color.White : TextColor, Margin = new Padding(0, 2, 0, 2), Padding = new Padding(10, 0, 8, 0) };
+        button.FlatAppearance.BorderSize = 0;
+        button.Click += (_, _) => { selectedLibrary = name; RefreshLibraries(); RenderCards(); };
+        return button;
     }
 
     void RenderCards()
     {
-        var term = search.Text.Trim(); var filtered = games.Where(g => (string.IsNullOrWhiteSpace(term) || g.Name.Contains(term, StringComparison.OrdinalIgnoreCase)) && IsInSelectedLibrary(g.Name)).ToList();
-        cards.SuspendLayout(); foreach (Control old in cards.Controls.Cast<Control>().ToList()) old.Dispose(); cards.Controls.Clear(); foreach (var game in filtered) cards.Controls.Add(CreateGameCard(game)); cards.ResumeLayout();
-        if (selected == null || !filtered.Any(g => g.Name.Equals(selected.Name, StringComparison.OrdinalIgnoreCase))) SelectGame(filtered.FirstOrDefault()); status.Text = $"{filtered.Count} jeux visibles • {games.Sum(g => g.Options.Count)} modes de lancement";
+        var term = search.Text.Trim();
+        var filtered = games.Where(g => (string.IsNullOrWhiteSpace(term) || g.Name.Contains(term, StringComparison.OrdinalIgnoreCase)) && IsInSelectedLibrary(g.Name)).ToList();
+        cards.SuspendLayout();
+        foreach (Control old in cards.Controls.Cast<Control>().ToList()) old.Dispose();
+        cards.Controls.Clear();
+        foreach (var game in filtered) cards.Controls.Add(CreateGameCard(game));
+        cards.ResumeLayout();
+
+        if (selected == null || !filtered.Any(g => g.Name.Equals(selected.Name, StringComparison.OrdinalIgnoreCase))) SelectGame(filtered.FirstOrDefault());
+        countLabel.Text = $"{filtered.Count} jeux";
+        status.Text = $"{filtered.Count} jeux visibles  •  {games.Sum(g => g.Options.Count)} modes de lancement";
+        RefreshLibrariesCountsOnly();
     }
 
-    bool IsInSelectedLibrary(string game) { if (selectedLibrary.Equals("Tous les jeux", StringComparison.OrdinalIgnoreCase)) return true; if (selectedLibrary.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase)) return LibraryStore.IsFavorite(game); if (selectedLibrary.Equals("Non classés", StringComparison.OrdinalIgnoreCase)) return !LibraryStore.Load().Any(l => l.Games.Any(g => g.Equals(game, StringComparison.OrdinalIgnoreCase))); return LibraryStore.Contains(selectedLibrary, game); }
+    void RefreshLibrariesCountsOnly()
+    {
+        foreach (Control control in libraryButtons.Controls)
+        {
+            if (control is not Button button) continue;
+            var name = button.Text.Trim();
+            var count = name.Equals("Tous les jeux", StringComparison.OrdinalIgnoreCase) ? games.Count : name.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase) ? games.Count(g => LibraryStore.IsFavorite(g.Name)) : name.Equals("Non classés", StringComparison.OrdinalIgnoreCase) ? games.Count(g => !LibraryStore.Load().Any(l => l.Games.Any(x => x.Equals(g.Name, StringComparison.OrdinalIgnoreCase)))) : games.Count(g => LibraryStore.Contains(name, g.Name));
+            button.Text = $"{name}   {count}";
+        }
+    }
+
+    bool IsInSelectedLibrary(string game)
+    {
+        if (selectedLibrary.Equals("Tous les jeux", StringComparison.OrdinalIgnoreCase)) return true;
+        if (selectedLibrary.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase)) return LibraryStore.IsFavorite(game);
+        if (selectedLibrary.Equals("Non classés", StringComparison.OrdinalIgnoreCase)) return !LibraryStore.Load().Any(l => l.Games.Any(g => g.Equals(game, StringComparison.OrdinalIgnoreCase)));
+        return LibraryStore.Contains(selectedLibrary, game);
+    }
 
     Control CreateGameCard(Game game)
     {
-        var card = new Panel { Width = 275, Height = 165, Margin = new Padding(10), BackColor = PanelBg, Cursor = Cursors.Hand, Tag = game };
-        var accent = new Panel { Dock = DockStyle.Left, Width = 5, BackColor = game.Source.Contains("Steam", StringComparison.OrdinalIgnoreCase) ? Accent : Color.FromArgb(90, 83, 110) };
-        var icon = new Panel { Location = new Point(18, 18), Size = new Size(54, 54), BackColor = Panel2 }; DrawIcon(icon, game.IconPath);
-        var title = new Label { Text = game.Name, Location = new Point(86, 18), Size = new Size(165, 45), Font = new Font("Segoe UI Semibold", 11, FontStyle.Bold), ForeColor = TextColor, AutoEllipsis = true };
-        var src = new Label { Text = game.Source.ToUpperInvariant(), Location = new Point(86, 64), Size = new Size(165, 20), Font = new Font("Segoe UI", 8, FontStyle.Bold), ForeColor = Muted };
-        var modes = new Label { Text = $"{game.Options.Count} mode{(game.Options.Count > 1 ? "s" : "")} de lancement", Location = new Point(18, 94), Size = new Size(240, 24), ForeColor = Muted };
-        var launch = new Button { Text = game.Options.Count > 1 ? "CHOISIR ▶" : "LANCER ▶", Location = new Point(18, 124), Size = new Size(235, 30), FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = TextColor }; launch.FlatAppearance.BorderColor = Color.FromArgb(70, 62, 90);
-        card.Controls.AddRange(new Control[] { accent, icon, title, src, modes, launch }); EventHandler select = (_, _) => SelectGame(game); foreach (var control in new Control[] { card, icon, title, src, modes }) control.Click += select; launch.Click += (_, _) => { SelectGame(game); LaunchSelected(); };
-        card.ContextMenuStrip = BuildContextMenu(game); foreach (Control control in card.Controls) control.ContextMenuStrip = card.ContextMenuStrip; return card;
+        var card = new Panel { Width = 258, Height = 248, Margin = new Padding(8), BackColor = CardBg, Cursor = Cursors.Hand };
+        var image = new Panel { Location = new Point(0, 0), Size = new Size(258, 118), BackColor = InputBg };
+        DrawCover(image, game.IconPath);
+
+        var title = new Label { Text = game.Name, Location = new Point(14, 128), Size = new Size(230, 28), Font = new Font("Segoe UI Semibold", 11, FontStyle.Bold), ForeColor = TextColor, AutoEllipsis = true };
+        var source = new Label { Text = game.Source, Location = new Point(14, 157), Size = new Size(230, 20), Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = Muted, AutoEllipsis = true };
+        var chip = new Label { Text = game.Options.Count > 1 ? $"{game.Options.Count} MODES" : "1 MODE", AutoSize = false, Location = new Point(14, 181), Size = new Size(90, 20), Font = new Font("Segoe UI", 7.5f, FontStyle.Bold), ForeColor = Accent, BackColor = Color.FromArgb(43, 29, 58), TextAlign = ContentAlignment.MiddleCenter };
+        var launch = new Button { Text = game.Options.Count > 1 ? "CHOISIR" : "JOUER", Location = new Point(116, 180), Size = new Size(126, 34), FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(38, 31, 52), ForeColor = TextColor };
+        launch.FlatAppearance.BorderColor = Color.FromArgb(72, 58, 95);
+        card.Controls.AddRange(new Control[] { image, title, source, chip, launch });
+
+        EventHandler select = (_, _) => SelectGame(game);
+        foreach (Control control in new Control[] { card, image, title, source, chip }) control.Click += select;
+        launch.Click += (_, _) => { SelectGame(game); LaunchSelected(); };
+        card.MouseEnter += (_, _) => card.BackColor = CardHover; card.MouseLeave += (_, _) => card.BackColor = CardBg;
+        card.ContextMenuStrip = BuildContextMenu(game);
+        return card;
     }
 
     ContextMenuStrip BuildContextMenu(Game game)
     {
-        var menu = new ContextMenuStrip { BackColor = Panel2, ForeColor = TextColor }; var add = new ToolStripMenuItem("Ajouter / retirer d'une bibliothèque");
-        foreach (var lib in LibraryStore.Load().Where(x => !x.Name.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase))) { var item = new ToolStripMenuItem(lib.Name) { Checked = LibraryStore.Contains(lib.Name, game.Name) }; item.Click += (_, _) => { if (LibraryStore.Contains(lib.Name, game.Name)) LibraryStore.RemoveGame(lib.Name, game.Name); else LibraryStore.AddGame(lib.Name, game.Name); RefreshLibraries(); RenderCards(); }; add.DropDownItems.Add(item); }
+        var menu = new ContextMenuStrip { BackColor = InputBg, ForeColor = TextColor };
+        var add = new ToolStripMenuItem("Ajouter / retirer d'une bibliothèque");
+        foreach (var lib in LibraryStore.Load().Where(x => !x.Name.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase)))
+        {
+            var item = new ToolStripMenuItem(lib.Name) { Checked = LibraryStore.Contains(lib.Name, game.Name) };
+            item.Click += (_, _) => { if (LibraryStore.Contains(lib.Name, game.Name)) LibraryStore.RemoveGame(lib.Name, game.Name); else LibraryStore.AddGame(lib.Name, game.Name); RefreshLibraries(); RenderCards(); };
+            add.DropDownItems.Add(item);
+        }
         var newLib = new ToolStripMenuItem("Créer une bibliothèque…"); newLib.Click += (_, _) => CreateLibrary(); add.DropDownItems.Add(newLib); menu.Items.Add(add);
-        var fav = new ToolStripMenuItem(LibraryStore.IsFavorite(game.Name) ? "Retirer des favoris" : "Ajouter aux favoris"); fav.Click += (_, _) => { if (LibraryStore.IsFavorite(game.Name)) LibraryStore.RemoveFavorite(game.Name); else LibraryStore.AddFavorite(game.Name); RefreshLibraries(); RenderCards(); }; menu.Items.Add(fav);
-        var folder = new ToolStripMenuItem("Ouvrir le dossier du jeu"); folder.Click += (_, _) => { if (!string.IsNullOrWhiteSpace(game.InstallPath) && Directory.Exists(game.InstallPath)) Process.Start(new ProcessStartInfo { FileName = game.InstallPath, UseShellExecute = true }); }; menu.Items.Add(folder); return menu;
+        var fav = new ToolStripMenuItem(LibraryStore.IsFavorite(game.Name) ? "Retirer des favoris" : "Ajouter aux favoris");
+        fav.Click += (_, _) => { if (LibraryStore.IsFavorite(game.Name)) LibraryStore.RemoveFavorite(game.Name); else LibraryStore.AddFavorite(game.Name); RefreshLibraries(); RenderCards(); }; menu.Items.Add(fav);
+        var folder = new ToolStripMenuItem("Ouvrir le dossier du jeu"); folder.Click += (_, _) => { if (!string.IsNullOrWhiteSpace(game.InstallPath) && Directory.Exists(game.InstallPath)) Process.Start(new ProcessStartInfo { FileName = game.InstallPath, UseShellExecute = true }); }; menu.Items.Add(folder);
+        return menu;
     }
 
     void SelectGame(Game? game)
     {
-        selected = game; if (game == null) { selectedTitle.Text = "Sélectionne un jeu"; selectedInfo.Text = ""; mode.Items.Clear(); return; }
-        selectedTitle.Text = game.Name; mode.BeginUpdate(); mode.Items.Clear(); foreach (var option in game.Options) mode.Items.Add(option.Name); mode.EndUpdate(); mode.SelectedIndex = 0; DrawIcon(selectedIcon, game.IconPath); UpdateSelectedInfo();
+        selected = game;
+        if (game == null)
+        {
+            selectedTitle.Text = "Sélectionne un jeu";
+            selectedInfo.Text = "Choisis un jeu dans ta bibliothèque pour voir ses modes de lancement.";
+            mode.Items.Clear();
+            DrawCover(selectedIcon, null);
+            return;
+        }
+        selectedTitle.Text = game.Name;
+        mode.BeginUpdate(); mode.Items.Clear(); foreach (var option in game.Options) mode.Items.Add(option.Name); mode.EndUpdate();
+        mode.SelectedIndex = game.Options.Count > 0 ? 0 : -1;
+        DrawCover(selectedIcon, game.IconPath);
+        UpdateSelectedInfo();
     }
 
-    void UpdateSelectedInfo() { if (selected == null || mode.SelectedIndex < 0) { selectedInfo.Text = ""; return; } var option = selected.Options[mode.SelectedIndex]; selectedInfo.Text = $"{selected.Source}  •  {option.Name}\n{selected.InstallPath ?? option.Target ?? "Emplacement inconnu"}"; }
+    void UpdateSelectedInfo()
+    {
+        if (selected == null || mode.SelectedIndex < 0) { selectedInfo.Text = ""; return; }
+        var option = selected.Options[mode.SelectedIndex];
+        selectedInfo.Text = $"{selected.Source}  •  {option.Name}\n{selected.InstallPath ?? option.Target ?? "Emplacement inconnu"}";
+    }
 
     void LaunchSelected()
     {
-        if (selected == null || mode.SelectedIndex < 0) return; var option = selected.Options[mode.SelectedIndex];
+        if (selected == null || mode.SelectedIndex < 0) return;
+        var option = selected.Options[mode.SelectedIndex];
         try
         {
-            if (option.Kind == "uri") { Process.Start(new ProcessStartInfo { FileName = option.Target, UseShellExecute = true }); return; }
-            if (!string.IsNullOrWhiteSpace(option.Target) && File.Exists(option.Target)) { Process.Start(new ProcessStartInfo { FileName = option.Target, WorkingDirectory = option.WorkingDirectory ?? Path.GetDirectoryName(option.Target), UseShellExecute = true }); status.Text = $"Lancé : {selected.Name} • {option.Name}"; return; }
-            MessageBox.Show("Le fichier de lancement n'existe plus. Lance un nouveau scan.", "Mataiasu Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (option.Kind == "uri") { Process.Start(new ProcessStartInfo { FileName = option.Target, UseShellExecute = true }); status.Text = $"Lancé : {selected.Name} • {option.Name}"; return; }
+            if (!string.IsNullOrWhiteSpace(option.Target) && File.Exists(option.Target))
+            {
+                Process.Start(new ProcessStartInfo { FileName = option.Target, WorkingDirectory = option.WorkingDirectory ?? Path.GetDirectoryName(option.Target), UseShellExecute = true });
+                status.Text = $"Lancé : {selected.Name} • {option.Name}";
+                return;
+            }
+            MessageBox.Show("Le fichier de lancement n'existe plus. Lance un nouveau scan.", "Launch'aiasu", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "Impossible de lancer le jeu", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
 
     async Task ScanAsync()
     {
-        if (scanning) return; scanning = true; scan.Enabled = false; scan.Text = "SCAN..."; status.Text = "Analyse des jeux et des bibliothèques..."; await Task.Yield();
-        try { games = await Task.Run(() => GameScanner.Scan(true)); RefreshLibraries(); RenderCards(); } catch (Exception ex) { status.Text = "Erreur de scan : " + ex.Message; } finally { scanning = false; scan.Enabled = true; scan.Text = "⟳  SCAN COMPLET"; }
+        if (scanning) return;
+        scanning = true; scan.Enabled = false; scan.Text = "SCAN..."; status.Text = "Analyse de ta bibliothèque...";
+        await Task.Yield();
+        try { games = await Task.Run(() => GameScanner.Scan(true)); RefreshLibraries(); RenderCards(); }
+        catch (Exception ex) { status.Text = "Erreur de scan : " + ex.Message; }
+        finally { scanning = false; scan.Enabled = true; scan.Text = "⟳  Scanner"; }
     }
 
     async Task ManualUpdateAsync()
     {
-        update.Enabled = false; update.Text = "VÉRIFICATION..."; status.Text = "Recherche d'une nouvelle version..."; var result = await LauncherUpdater.CheckAndApplyAsync(true);
+        update.Enabled = false; update.Text = "VÉRIFICATION..."; status.Text = "Recherche d'une nouvelle version...";
+        var result = await LauncherUpdater.CheckAndApplyAsync(true);
         if (result == UpdateResult.Updated) { status.Text = "Mise à jour téléchargée. Redémarrage..."; BeginInvoke(new Action(Close)); return; }
-        status.Text = result switch { UpdateResult.UpToDate => "Le launcher est déjà à jour.", UpdateResult.NoPublishedBuild => "Une mise à jour est disponible, mais son build n'est pas encore publié.", UpdateResult.NotWritable => "Le dossier du launcher n'est pas accessible en écriture. Déplace l'EXE dans un dossier utilisateur.", UpdateResult.DevBuild => "Cette version locale n'est pas une version publiée.", _ => "Impossible de vérifier ou d'installer la mise à jour." };
-        update.Enabled = true; update.Text = "↻  MISE À JOUR";
+        status.Text = result switch
+        {
+            UpdateResult.UpToDate => "Launch'aiasu est déjà à jour.",
+            UpdateResult.NoPublishedBuild => "Une mise à jour est détectée mais son build n'est pas encore publié.",
+            UpdateResult.NotWritable => "Le dossier du launcher n'est pas accessible en écriture.",
+            UpdateResult.DevBuild => "Cette version locale n'est pas une version publiée.",
+            _ => "Impossible de vérifier ou d'installer la mise à jour."
+        };
+        update.Enabled = true; update.Text = "↻  Mise à jour";
     }
 
     void CreateLibrary()
     {
-        using var dialog = new Form { Text = "Nouvelle bibliothèque", Width = 430, Height = 190, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, BackColor = PanelBg, ForeColor = TextColor };
-        var label = new Label { Text = "Nom de la bibliothèque", Left = 22, Top = 18, AutoSize = true }; var input = new TextBox { Left = 22, Top = 48, Width = 365, BackColor = Panel2, ForeColor = TextColor };
-        var ok = new Button { Text = "Créer", Left = 220, Top = 92, Width = 80, DialogResult = DialogResult.OK, BackColor = Accent, ForeColor = Color.White, FlatStyle = FlatStyle.Flat }; var cancel = new Button { Text = "Annuler", Left = 307, Top = 92, Width = 80, DialogResult = DialogResult.Cancel, FlatStyle = FlatStyle.Flat }; ok.FlatAppearance.BorderSize = 0; cancel.FlatAppearance.BorderSize = 0;
+        using var dialog = new Form { Text = "Nouvelle bibliothèque", Width = 430, Height = 190, StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, BackColor = CardBg, ForeColor = TextColor };
+        var label = new Label { Text = "Nom de la bibliothèque", Left = 22, Top = 18, AutoSize = true, ForeColor = TextColor };
+        var input = new TextBox { Left = 22, Top = 48, Width = 365, BackColor = InputBg, ForeColor = TextColor };
+        var ok = new Button { Text = "Créer", Left = 220, Top = 92, Width = 80, DialogResult = DialogResult.OK, BackColor = Accent, ForeColor = Color.White, FlatStyle = FlatStyle.Flat };
+        var cancel = new Button { Text = "Annuler", Left = 307, Top = 92, Width = 80, DialogResult = DialogResult.Cancel, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(44, 38, 54), ForeColor = TextColor };
+        ok.FlatAppearance.BorderSize = 0; cancel.FlatAppearance.BorderSize = 0;
         dialog.Controls.AddRange(new Control[] { label, input, ok, cancel }); dialog.AcceptButton = ok; dialog.CancelButton = cancel;
-        if (dialog.ShowDialog(this) == DialogResult.OK) { var name = input.Text.Trim(); if (!string.IsNullOrWhiteSpace(name) && !name.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase)) { if (!LibraryStore.Create(name)) MessageBox.Show("Cette bibliothèque existe déjà.", "Mataiasu Launcher", MessageBoxButtons.OK, MessageBoxIcon.Information); RefreshLibraries(); RenderCards(); } }
+        if (dialog.ShowDialog(this) == DialogResult.OK)
+        {
+            var name = input.Text.Trim();
+            if (!string.IsNullOrWhiteSpace(name) && !name.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!LibraryStore.Create(name)) MessageBox.Show("Cette bibliothèque existe déjà.", "Launch'aiasu", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                selectedLibrary = name; RefreshLibraries(); RenderCards();
+            }
+        }
     }
 
     void ManageLibraries()
     {
         var libs = LibraryStore.Load().Where(x => !x.Name.Equals("★ Favoris", StringComparison.OrdinalIgnoreCase)).ToList();
-        using var dialog = new Form { Text = "Gérer les bibliothèques", Width = 480, Height = 430, StartPosition = FormStartPosition.CenterParent, BackColor = PanelBg, ForeColor = TextColor };
-        var list = new ListBox { Dock = DockStyle.Top, Height = 300, BackColor = Panel2, ForeColor = TextColor, BorderStyle = BorderStyle.None }; list.Items.AddRange(libs.Select(x => $"{x.Name}   ·   {x.Games.Count} jeu(x)").Cast<object>().ToArray());
+        using var dialog = new Form { Text = "Gérer les bibliothèques", Width = 480, Height = 430, StartPosition = FormStartPosition.CenterParent, BackColor = CardBg, ForeColor = TextColor };
+        var list = new ListBox { Dock = DockStyle.Top, Height = 300, BackColor = InputBg, ForeColor = TextColor, BorderStyle = BorderStyle.None }; list.Items.AddRange(libs.Select(x => $"{x.Name}   ·   {x.Games.Count} jeu(x)").Cast<object>().ToArray());
         var delete = new Button { Text = "Supprimer la bibliothèque sélectionnée", Dock = DockStyle.Bottom, Height = 42, BackColor = Color.FromArgb(70, 48, 84), ForeColor = Color.White, FlatStyle = FlatStyle.Flat }; delete.FlatAppearance.BorderSize = 0;
-        delete.Click += (_, _) => { if (list.SelectedIndex < 0) return; var lib = libs[list.SelectedIndex]; if (MessageBox.Show($"Supprimer « {lib.Name} » ? Les jeux ne seront pas désinstallés.", "Confirmation", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return; LibraryStore.Delete(lib.Name); dialog.Close(); RefreshLibraries(); RenderCards(); };
+        delete.Click += (_, _) => { if (list.SelectedIndex < 0) return; var lib = libs[list.SelectedIndex]; if (MessageBox.Show($"Supprimer « {lib.Name} » ? Les jeux ne seront pas désinstallés.", "Confirmation", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return; LibraryStore.Delete(lib.Name); dialog.Close(); selectedLibrary = "Tous les jeux"; RefreshLibraries(); RenderCards(); };
         dialog.Controls.Add(delete); dialog.Controls.Add(list); dialog.ShowDialog(this);
     }
 
-    static void StyleButton(Button button) { button.BackColor = Accent; button.ForeColor = Color.White; button.FlatAppearance.BorderSize = 0; }
-    static void DrawIcon(Panel panel, string? exePath) { panel.BackgroundImage?.Dispose(); panel.BackgroundImage = null; if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath)) { panel.Invalidate(); return; } try { using var icon = Icon.ExtractAssociatedIcon(exePath); if (icon != null) panel.BackgroundImage = icon.ToBitmap(); panel.BackgroundImageLayout = ImageLayout.Stretch; } catch { } }
+    static void StyleButton(Button button) { button.BackColor = Accent; button.ForeColor = Color.White; button.FlatAppearance.BorderSize = 0; button.Font = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold); }
+
+    static void DrawCover(Control panel, string? exePath)
+    {
+        panel.BackgroundImage?.Dispose(); panel.BackgroundImage = null;
+        if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath)) { panel.BackColor = InputBg; return; }
+        try
+        {
+            using var icon = Icon.ExtractAssociatedIcon(exePath);
+            if (icon != null) { panel.BackgroundImage = icon.ToBitmap(); panel.BackgroundImageLayout = ImageLayout.Zoom; }
+            panel.BackColor = InputBg;
+        }
+        catch { panel.BackColor = InputBg; }
+    }
 }
 
 internal static class Program
