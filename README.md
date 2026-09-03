@@ -1,4 +1,4 @@
-# Mataiasu Launcher
+# Launch'aiasu
 
 Launcher Windows universel en développement.
 
@@ -8,6 +8,8 @@ Launcher Windows universel en développement.
 - Détection des jeux installés via Steam.
 - Détection des jeux installés via Epic Games.
 - Recherche dans la bibliothèque.
+- Bibliothèques personnalisées et favoris.
+- Modes de lancement multiples quand disponibles.
 - Affichage de la source et du chemin d'installation.
 - Lancement via Steam URI quand disponible.
 - Lancement direct de l'exécutable quand il est connu.
@@ -15,7 +17,7 @@ Launcher Windows universel en développement.
 
 ## Build
 
-Le workflow `Build Mataiasu Launcher` compile automatiquement `MataiasuLauncher.exe` sur chaque push sur `main` et peut aussi être lancé manuellement depuis l'onglet Actions.
+Le workflow `Build Launch'aiasu` compile automatiquement `MataiasuLauncher.exe` sur chaque push sur `main` et peut aussi être lancé manuellement depuis l'onglet Actions.
 
 ## Roadmap
 
@@ -23,7 +25,6 @@ Le workflow `Build Mataiasu Launcher` compile automatiquement `MataiasuLauncher.
 - Détection Ubisoft Connect, EA app, Battle.net et Xbox.
 - Détection plus fiable des exécutables.
 - Profils de lancement et arguments.
-- Favoris et historique.
-- Temps de jeu.
+- Historique et temps de jeu.
 - Gestion avancée des mods.
 - Mise à jour automatique du launcher.
