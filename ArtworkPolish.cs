@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
@@ -7,10 +8,13 @@ using System.Windows.Forms;
 
 internal static class ArtworkPolish
 {
-    static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
+    static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(12) };
     static readonly HashSet<string> Loaded = new(StringComparer.OrdinalIgnoreCase);
     static readonly object Sync = new();
-    static readonly string CacheRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Launch'aiasu", "Artwork");
+    static readonly string CacheRoot = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Launch'aiasu",
+        "Artwork");
     static bool hooked;
 
     [ModuleInitializer]
@@ -18,8 +22,10 @@ internal static class ArtworkPolish
 
     static void OnIdle(object? sender, EventArgs e)
     {
-        var form = Application.OpenForms.OfType<Form>().FirstOrDefault(f => f.GetType().Name.Equals("MainForm", StringComparison.Ordinal));
+        var form = Application.OpenForms.OfType<Form>().FirstOrDefault(
+            f => f.GetType().Name.Equals("MainForm", StringComparison.Ordinal));
         if (form == null) return;
+
         if (!hooked)
         {
             hooked = true;
@@ -32,88 +38,185 @@ internal static class ArtworkPolish
         foreach (Control card in cards.Controls)
         {
             if (card.Tag == null) continue;
+
             var gameName = GetProperty<string>(card.Tag, "Name");
-            var optionsObject = GetPropertyObject(card.Tag, "Options");
-            if (string.IsNullOrWhiteSpace(gameName) || optionsObject is not IEnumerable options) continue;
+            var iconPath = GetProperty<string>(card.Tag, "IconPath");
+            var optionsValue = GetRawProperty(card.Tag, "Options");
+            if (string.IsNullOrWhiteSpace(gameName) || optionsValue is not IEnumerable options) continue;
 
             var appId = ExtractSteamAppId(options);
-            if (string.IsNullOrWhiteSpace(appId)) continue;
+            var key = string.IsNullOrWhiteSpace(appId)
+                ? gameName + "|local|" + (iconPath ?? string.Empty)
+                : gameName + "|steam|" + appId;
 
-            var key = gameName + "|" + appId;
-            lock (Sync) if (!Loaded.Add(key)) continue;
-            _ = LoadSteamArtworkAsync(card, appId);
+            lock (Sync)
+            {
+                if (!Loaded.Add(key)) continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(appId))
+                _ = LoadSteamArtworkAsync(card, appId, gameName);
+            else
+                _ = LoadLocalArtworkAsync(card, iconPath);
         }
     }
 
-    static async Task LoadSteamArtworkAsync(Control card, string appId)
+    static async Task LoadSteamArtworkAsync(Control card, string appId, string gameName)
     {
         try
         {
             Directory.CreateDirectory(CacheRoot);
-            var path = Path.Combine(CacheRoot, appId + ".jpg");
-            if (!File.Exists(path))
+            var cachePath = Path.Combine(CacheRoot, $"steam_{appId}_512.png");
+
+            if (!File.Exists(cachePath) || new FileInfo(cachePath).Length < 20_000)
             {
-                var urls = new[]
+                var sourcePath = Path.Combine(CacheRoot, $"steam_{appId}_source.jpg");
+                if (!File.Exists(sourcePath) || new FileInfo(sourcePath).Length < 10_000)
                 {
-                    $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/library_600x900.jpg",
-                    $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg"
-                };
-                foreach (var url in urls)
-                {
-                    try
+                    var urls = new[]
                     {
-                        using var response = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
-                        if (!response.IsSuccessStatusCode) continue;
-                        await using var input = await response.Content.ReadAsStreamAsync();
-                        await using var output = File.Create(path);
-                        await input.CopyToAsync(output);
-                        if (new FileInfo(path).Length > 10_000) break;
+                        $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/library_600x900.jpg",
+                        $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/library_600x900_2x.jpg",
+                        $"https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg"
+                    };
+
+                    foreach (var url in urls)
+                    {
+                        try
+                        {
+                            using var response = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                            if (!response.IsSuccessStatusCode) continue;
+                            await using var input = await response.Content.ReadAsStreamAsync();
+                            await using var output = File.Create(sourcePath);
+                            await input.CopyToAsync(output);
+                            if (new FileInfo(sourcePath).Length > 10_000) break;
+                        }
+                        catch { }
                     }
-                    catch { }
+                }
+
+                if (File.Exists(sourcePath) && new FileInfo(sourcePath).Length > 10_000)
+                {
+                    using var source = Image.FromFile(sourcePath);
+                    using var polished = CreateCover(source, 512, 512);
+                    polished.Save(cachePath, ImageFormat.Png);
                 }
             }
-            if (!File.Exists(path) || new FileInfo(path).Length <= 10_000) return;
 
-            using var original = Image.FromFile(path);
-            var thumb = CreateSquareThumbnail(original, 192);
-            if (card.IsDisposed) { thumb.Dispose(); return; }
-            card.BeginInvoke(new Action(() => ApplyToCard(card, thumb)));
+            if (!File.Exists(cachePath) || new FileInfo(cachePath).Length <= 20_000) return;
+            using var image = Image.FromFile(cachePath);
+            var bitmap = new Bitmap(image);
+            ApplyToCard(card, bitmap);
         }
         catch { }
     }
 
-    static Bitmap CreateSquareThumbnail(Image source, int size)
+    static async Task LoadLocalArtworkAsync(Control card, string? iconPath)
     {
-        var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        await Task.Yield();
+        try
+        {
+            if (string.IsNullOrWhiteSpace(iconPath) || !File.Exists(iconPath)) return;
+
+            Directory.CreateDirectory(CacheRoot);
+            var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(iconPath))).Substring(0, 20);
+            var cachePath = Path.Combine(CacheRoot, $"local_{key}_256.png");
+
+            if (!File.Exists(cachePath) || new FileInfo(cachePath).Length < 2_000)
+            {
+                using var icon = Icon.ExtractAssociatedIcon(iconPath);
+                if (icon == null) return;
+                using var source = icon.ToBitmap();
+                using var polished = CreateIconArtwork(source, 256);
+                polished.Save(cachePath, ImageFormat.Png);
+            }
+
+            if (!File.Exists(cachePath)) return;
+            using var image = Image.FromFile(cachePath);
+            ApplyToCard(card, new Bitmap(image));
+        }
+        catch { }
+    }
+
+    static Bitmap CreateCover(Image source, int width, int height)
+    {
+        var bitmap = new Bitmap(width, height, PixelFormat.Format32bppPArgb);
         using var g = Graphics.FromImage(bitmap);
-        g.CompositingMode = CompositingMode.SourceCopy;
+        g.Clear(Color.FromArgb(18, 15, 26));
+        g.CompositingMode = CompositingMode.SourceOver;
         g.CompositingQuality = CompositingQuality.HighQuality;
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
         g.SmoothingMode = SmoothingMode.HighQuality;
         g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        g.Clear(Color.Transparent);
 
-        var side = Math.Min(source.Width, source.Height);
-        var cropX = (source.Width - side) / 2;
-        var cropY = (source.Height - side) / 2;
-        g.DrawImage(source, new Rectangle(0, 0, size, size), new Rectangle(cropX, cropY, side, side), GraphicsUnit.Pixel);
+        var scale = Math.Max((double)width / source.Width, (double)height / source.Height);
+        var drawWidth = Math.Max(1, (int)Math.Round(source.Width * scale));
+        var drawHeight = Math.Max(1, (int)Math.Round(source.Height * scale));
+        var x = (width - drawWidth) / 2;
+        var y = (height - drawHeight) / 2;
+        g.DrawImage(source, new Rectangle(x, y, drawWidth, drawHeight));
+        return bitmap;
+    }
+
+    static Bitmap CreateIconArtwork(Image source, int size)
+    {
+        var bitmap = new Bitmap(size, size, PixelFormat.Format32bppPArgb);
+        using var g = Graphics.FromImage(bitmap);
+        g.Clear(Color.FromArgb(24, 21, 34));
+        g.CompositingMode = CompositingMode.SourceOver;
+        g.CompositingQuality = CompositingQuality.HighQuality;
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.SmoothingMode = SmoothingMode.HighQuality;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+        var padding = Math.Max(12, size / 10);
+        var target = new Rectangle(padding, padding, size - padding * 2, size - padding * 2);
+        g.DrawImage(source, target);
         return bitmap;
     }
 
     static void ApplyToCard(Control card, Bitmap bitmap)
     {
+        if (card.IsDisposed)
+        {
+            bitmap.Dispose();
+            return;
+        }
+
+        void Apply()
+        {
+            try
+            {
+                var imagePanel = card.Controls.OfType<Panel>()
+                    .OrderBy(p => p.Location.X)
+                    .FirstOrDefault(p => p.Width <= 110 && p.Height <= 110 && p != card);
+                if (imagePanel == null)
+                {
+                    bitmap.Dispose();
+                    return;
+                }
+
+                var old = imagePanel.BackgroundImage;
+                imagePanel.BackgroundImage = bitmap;
+                imagePanel.BackgroundImageLayout = ImageLayout.Zoom;
+                old?.Dispose();
+            }
+            catch
+            {
+                bitmap.Dispose();
+            }
+        }
+
         try
         {
-            var imagePanel = card.Controls.OfType<Panel>()
-                .OrderBy(p => p.Location.X)
-                .FirstOrDefault(p => p.Width <= 80 && p.Height <= 80 && p != card);
-            if (imagePanel == null) { bitmap.Dispose(); return; }
-            var old = imagePanel.BackgroundImage;
-            imagePanel.BackgroundImage = bitmap;
-            imagePanel.BackgroundImageLayout = ImageLayout.Stretch;
-            old?.Dispose();
+            if (card.InvokeRequired) card.BeginInvoke(new Action(Apply));
+            else Apply();
         }
-        catch { bitmap.Dispose(); }
+        catch
+        {
+            bitmap.Dispose();
+        }
     }
 
     static string? ExtractSteamAppId(IEnumerable options)
@@ -122,16 +225,22 @@ internal static class ArtworkPolish
         {
             var kind = GetProperty<string>(option!, "Kind");
             var target = GetProperty<string>(option!, "Target");
-            if (!string.Equals(kind, "uri", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(target)) continue;
+            if (!string.Equals(kind, "uri", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(target))
+                continue;
+
             var match = Regex.Match(target, @"steam://(?:rungameid|runapp)/(?<id>\d+)", RegexOptions.IgnoreCase);
             if (match.Success) return match.Groups["id"].Value;
         }
+
         return null;
     }
 
-    static object? GetPropertyObject(object source, string name)
+    static object? GetRawProperty(object source, string name)
     {
-        try { return source.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public)?.GetValue(source); }
+        try
+        {
+            return source.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public)?.GetValue(source);
+        }
         catch { return null; }
     }
 
@@ -139,7 +248,7 @@ internal static class ArtworkPolish
     {
         try
         {
-            var value = GetPropertyObject(source, name);
+            var value = source.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public)?.GetValue(source);
             if (value is T typed) return typed;
             return value is null ? default : (T?)Convert.ChangeType(value, typeof(T));
         }
