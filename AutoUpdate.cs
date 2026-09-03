@@ -3,7 +3,7 @@ using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
-internal enum UpdateResult
+internal enum ManualUpdateResult
 {
     NotAvailable,
     AlreadyUpToDate,
@@ -26,10 +26,7 @@ internal static class AutoUpdate
     }
 
     [ModuleInitializer]
-    internal static void Initialize()
-    {
-        Application.Idle += OnIdle;
-    }
+    internal static void Initialize() => Application.Idle += OnIdle;
 
     static async void OnIdle(object? sender, EventArgs e)
     {
@@ -38,11 +35,10 @@ internal static class AutoUpdate
 
         var form = Application.OpenForms.OfType<MainForm>().FirstOrDefault();
         if (form == null) return;
-
         await CheckAndApplyAsync(form, interactive: false);
     }
 
-    public static async Task<UpdateResult> CheckAndApplyAsync(Form? form, bool interactive)
+    public static async Task<ManualUpdateResult> CheckAndApplyAsync(Form? form, bool interactive)
     {
         try
         {
@@ -52,7 +48,7 @@ internal static class AutoUpdate
             if (string.IsNullOrWhiteSpace(releaseCommit))
             {
                 if (interactive) ShowMessage(form, "Impossible de contacter le serveur de mise à jour.", MessageBoxIcon.Warning);
-                return UpdateResult.NotAvailable;
+                return ManualUpdateResult.NotAvailable;
             }
 
             var currentCommit = BuildInfo.Commit.Trim();
@@ -64,21 +60,21 @@ internal static class AutoUpdate
                     SetStatus(form, "Launcher à jour.");
                     ShowMessage(form, "Mataiasu Launcher est déjà à jour.", MessageBoxIcon.Information);
                 }
-                return UpdateResult.AlreadyUpToDate;
+                return ManualUpdateResult.AlreadyUpToDate;
             }
 
             var currentExe = Environment.ProcessPath;
             if (string.IsNullOrWhiteSpace(currentExe) || !File.Exists(currentExe))
             {
                 if (interactive) ShowMessage(form, "Impossible de localiser l'exécutable actuel.", MessageBoxIcon.Warning);
-                return UpdateResult.Failed;
+                return ManualUpdateResult.Failed;
             }
 
             var installDirectory = Path.GetDirectoryName(currentExe);
             if (string.IsNullOrWhiteSpace(installDirectory) || !Directory.Exists(installDirectory))
             {
                 if (interactive) ShowMessage(form, "Impossible de localiser le dossier du launcher.", MessageBoxIcon.Warning);
-                return UpdateResult.Failed;
+                return ManualUpdateResult.Failed;
             }
 
             var tempRoot = Path.Combine(Path.GetTempPath(), "MataiasuLauncher", Guid.NewGuid().ToString("N"));
@@ -92,31 +88,30 @@ internal static class AutoUpdate
 
             await File.WriteAllTextAsync(helper, BuildPowerShellScript());
 
-            var psi = new ProcessStartInfo
+            Process.Start(new ProcessStartInfo
             {
                 FileName = "powershell.exe",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WindowStyle = ProcessWindowStyle.Hidden,
-                Arguments = $"-NoLogo -NoProfile -ExecutionPolicy Bypass -File \"{helper}\" -Pid {pid} -Source \"{downloadedExe}\" -Target \"{currentExe}\""
-            };
-            Process.Start(psi);
+                Arguments = $"-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{helper}\" -Pid {pid} -Source \"{downloadedExe}\" -Target \"{currentExe}\""
+            });
 
             if (form != null)
             {
-                SetStatus(form, "Mise à jour installée. Redémarrage...");
+                SetStatus(form, "Mise à jour téléchargée. Redémarrage...");
                 await Task.Delay(250);
                 form.Close();
             }
 
-            return UpdateResult.UpdatedAndRestarting;
+            return ManualUpdateResult.UpdatedAndRestarting;
         }
         catch (Exception ex)
         {
             if (interactive)
                 ShowMessage(form, "La mise à jour a échoué :\n\n" + ex.Message, MessageBoxIcon.Error);
             if (form != null) SetStatus(form, "Mise à jour indisponible.");
-            return UpdateResult.Failed;
+            return ManualUpdateResult.Failed;
         }
     }
 
@@ -165,7 +160,6 @@ for ($i = 0; $i -lt 20; $i++) {
     }
 }
 
-# Keep the old launcher usable if the target folder is not writable.
 try { Start-Process -FilePath $Target } catch { }
 ";
 
@@ -175,7 +169,9 @@ try { Start-Process -FilePath $Target } catch { }
         {
             if (label.Text.Contains("jeux", StringComparison.OrdinalIgnoreCase) ||
                 label.Text.Equals("Prêt", StringComparison.OrdinalIgnoreCase) ||
-                label.Text.StartsWith("Analyse", StringComparison.OrdinalIgnoreCase))
+                label.Text.StartsWith("Analyse", StringComparison.OrdinalIgnoreCase) ||
+                label.Text.StartsWith("Recherche", StringComparison.OrdinalIgnoreCase) ||
+                label.Text.StartsWith("Téléchargement", StringComparison.OrdinalIgnoreCase))
             {
                 label.Text = text;
                 return;
@@ -237,15 +233,20 @@ internal static class AutoUpdateUi
         updateButton.BringToFront();
 
         form.Resize += (_, _) => Position(scan, updateButton);
+        Position(scan, updateButton);
     }
 
     static async Task ManualUpdateAsync(Form form)
     {
         if (updateButton == null) return;
         updateButton.Enabled = false;
+        updateButton.Text = "… VÉRIFICATION";
         var result = await AutoUpdate.CheckAndApplyAsync(form, interactive: true);
-        if (result != UpdateResult.UpdatedAndRestarting)
+        if (result != ManualUpdateResult.UpdatedAndRestarting)
+        {
+            updateButton.Text = "↻  MISE À JOUR";
             updateButton.Enabled = true;
+        }
     }
 
     static void Position(Control scan, Control button)
