@@ -1,4 +1,4 @@
-name: Build Mataiasu Launcher
+name: Build Launch'aiasu
 
 on:
   workflow_dispatch:
@@ -42,7 +42,7 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MataiasuLauncher-Windows-x64
+          name: Launch'aiasu-Windows-x64
           path: |
             MataiasuLauncher.exe
             MataiasuLauncher.commit.txt
@@ -51,9 +51,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: Mataiasu Launcher - latest
+          name: Launch'aiasu - latest
           body: |
-            Automatic rolling release for the latest main commit.
+            Automatic rolling release for the latest main commit of Launch'aiasu.
 
             Commit: ${{ github.sha }}
           prerelease: false
