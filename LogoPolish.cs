@@ -23,21 +23,25 @@ internal static class LogoPolish
 
         if (logo.Parent is Panel header)
         {
-            header.Height = 124;
+            header.Height = 128;
+
             logo.AutoSize = false;
-            logo.Size = new Size(300, 38);
-            logo.Location = new Point(26, 10);
-            logo.Font = new Font("Segoe UI Semibold", 23f, FontStyle.Bold);
+            logo.Size = new Size(330, 40);
+            logo.Location = new Point(26, 8);
+            logo.Font = new Font("Segoe UI Semibold", 24f, FontStyle.Bold);
             logo.TextAlign = ContentAlignment.MiddleLeft;
+            logo.Padding = new Padding(0);
 
             var subtitle = FindLabels(header).FirstOrDefault(x => x.Text.Equals("GAME LIBRARY", StringComparison.OrdinalIgnoreCase));
             if (subtitle != null)
             {
                 subtitle.AutoSize = false;
-                subtitle.Size = new Size(300, 20);
-                subtitle.Location = new Point(29, 48);
+                subtitle.Size = new Size(330, 24);
+                subtitle.Location = new Point(29, 49);
                 subtitle.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
                 subtitle.TextAlign = ContentAlignment.MiddleLeft;
+                subtitle.Padding = new Padding(0, 1, 0, 0);
+                subtitle.Margin = new Padding(0);
             }
         }
     }
