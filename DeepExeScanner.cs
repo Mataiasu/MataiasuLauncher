@@ -6,6 +6,7 @@ using System.Windows.Forms;
 internal static class DeepExeScanner
 {
     static int started;
+
     static readonly HashSet<string> IgnoredExeNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "unins000.exe", "uninstall.exe", "uninstaller.exe", "setup.exe", "install.exe", "update.exe", "updater.exe",
@@ -22,12 +23,12 @@ internal static class DeepExeScanner
     };
 
     [ModuleInitializer]
-    internal static void Initialize() => Application.Idle += Attach;
+    internal static void Initialize() => Application.Idle += AttachWhenReady;
 
-    static void Attach(object? sender, EventArgs e)
+    static void AttachWhenReady(object? sender, EventArgs e)
     {
         if (Interlocked.Exchange(ref started, 1) != 0) return;
-        Application.Idle -= Attach;
+        Application.Idle -= AttachWhenReady;
         var form = Application.OpenForms.OfType<MainForm>().FirstOrDefault();
         if (form == null) return;
         _ = ScanAndMergeAsync(form);
@@ -39,11 +40,7 @@ internal static class DeepExeScanner
         {
             SetStatus(form, "Recherche approfondie des jeux installés...");
             var found = await Task.Run(ScanAllFixedDrives);
-            if (found.Count == 0)
-            {
-                SetStatus(form, "Aucun nouveau jeu trouvé par le scan approfondi.");
-                return;
-            }
+            if (found.Count == 0) return;
 
             var field = typeof(MainForm).GetField("games", BindingFlags.Instance | BindingFlags.NonPublic);
             var render = typeof(MainForm).GetMethod("RenderCards", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -65,7 +62,8 @@ internal static class DeepExeScanner
                 }
             }
 
-            form.Invoke(render, null);
+            // RenderCards touches WinForms controls, so marshal the reflection call to the UI thread.
+            form.Invoke(new Action(() => render.Invoke(form, new object?[] { })));
         }
         catch
         {
@@ -162,9 +160,13 @@ internal static class DeepExeScanner
         try
         {
             var field = typeof(MainForm).GetField("status", BindingFlags.Instance | BindingFlags.NonPublic);
-            if (field?.GetValue(form) is not Label label) return;
-            if (form.InvokeRequired) form.BeginInvoke(new Action(() => label.Text = text));
-            else label.Text = text;
+            if (field?.GetValue(form) is Label label)
+            {
+                if (label.InvokeRequired)
+                    label.BeginInvoke(new Action(() => label.Text = text));
+                else
+                    label.Text = text;
+            }
         }
         catch { }
     }
