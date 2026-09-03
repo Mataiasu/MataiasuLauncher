@@ -39,7 +39,11 @@ internal static class DeepExeScanner
         {
             SetStatus(form, "Recherche approfondie des jeux installés...");
             var found = await Task.Run(ScanAllFixedDrives);
-            if (found.Count == 0) return;
+            if (found.Count == 0)
+            {
+                SetStatus(form, "Aucun nouveau jeu trouvé par le scan approfondi.");
+                return;
+            }
 
             var field = typeof(MainForm).GetField("games", BindingFlags.Instance | BindingFlags.NonPublic);
             var render = typeof(MainForm).GetMethod("RenderCards", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -61,11 +65,11 @@ internal static class DeepExeScanner
                 }
             }
 
-            render.Invoke(form, null);
+            form.Invoke(render, null);
         }
         catch
         {
-            // The normal scanner remains the primary source; this pass is best-effort.
+            // The primary scanner remains usable even when this best-effort pass fails.
         }
     }
 
@@ -158,7 +162,9 @@ internal static class DeepExeScanner
         try
         {
             var field = typeof(MainForm).GetField("status", BindingFlags.Instance | BindingFlags.NonPublic);
-            if (field?.GetValue(form) is Label label) label.Text = text;
+            if (field?.GetValue(form) is not Label label) return;
+            if (form.InvokeRequired) form.BeginInvoke(new Action(() => label.Text = text));
+            else label.Text = text;
         }
         catch { }
     }
