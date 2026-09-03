@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Drawing.Drawing2D;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -32,8 +33,8 @@ internal static class ArtworkPolish
         {
             if (card.Tag == null) continue;
             var gameName = GetProperty<string>(card.Tag, "Name");
-            var options = GetProperty<IEnumerable<object>>(card.Tag, "Options");
-            if (string.IsNullOrWhiteSpace(gameName) || options == null) continue;
+            var optionsObject = GetPropertyObject(card.Tag, "Options");
+            if (string.IsNullOrWhiteSpace(gameName) || optionsObject is not IEnumerable options) continue;
 
             var appId = ExtractSteamAppId(options);
             if (string.IsNullOrWhiteSpace(appId)) continue;
@@ -90,6 +91,7 @@ internal static class ArtworkPolish
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
         g.SmoothingMode = SmoothingMode.HighQuality;
         g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        g.Clear(Color.Transparent);
 
         var side = Math.Min(source.Width, source.Height);
         var cropX = (source.Width - side) / 2;
@@ -114,12 +116,12 @@ internal static class ArtworkPolish
         catch { bitmap.Dispose(); }
     }
 
-    static string? ExtractSteamAppId(IEnumerable<object> options)
+    static string? ExtractSteamAppId(IEnumerable options)
     {
         foreach (var option in options)
         {
-            var kind = GetProperty<string>(option, "Kind");
-            var target = GetProperty<string>(option, "Target");
+            var kind = GetProperty<string>(option!, "Kind");
+            var target = GetProperty<string>(option!, "Target");
             if (!string.Equals(kind, "uri", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(target)) continue;
             var match = Regex.Match(target, @"steam://(?:rungameid|runapp)/(?<id>\d+)", RegexOptions.IgnoreCase);
             if (match.Success) return match.Groups["id"].Value;
@@ -127,12 +129,17 @@ internal static class ArtworkPolish
         return null;
     }
 
+    static object? GetPropertyObject(object source, string name)
+    {
+        try { return source.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public)?.GetValue(source); }
+        catch { return null; }
+    }
+
     static T? GetProperty<T>(object source, string name)
     {
         try
         {
-            var property = source.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public);
-            var value = property?.GetValue(source);
+            var value = GetPropertyObject(source, name);
             if (value is T typed) return typed;
             return value is null ? default : (T?)Convert.ChangeType(value, typeof(T));
         }
